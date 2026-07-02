@@ -66,6 +66,7 @@ final class AppState: ObservableObject {
     @Published var aiPreset: AIPreset = .standard
     @Published var temperature: Double = 0.1
     @Published var customPrompt: String = ""
+    @Published var customPresets: [CustomPreset] = []
     @Published var glossary: [String: String] = [
         "tulle": "tool",
         "gittab": "GitHub",
@@ -142,6 +143,25 @@ final class AppState: ObservableObject {
         persistData()
     }
 
+    // MARK: - Gestione Cronologia & Custom Presets
+    func updateRecord(id: UUID, newCleanedText: String) {
+        if let idx = transcriptionHistory.firstIndex(where: { $0.id == id }) {
+            transcriptionHistory[idx].cleanedText = newCleanedText
+            persistData()
+        }
+    }
+
+    func addCustomPreset(name: String, icon: String, prompt: String, temp: Double) {
+        let preset = CustomPreset(id: UUID(), name: name, icon: icon, systemPrompt: prompt, temperature: temp)
+        customPresets.append(preset)
+        persistData()
+    }
+
+    func removeCustomPreset(id: UUID) {
+        customPresets.removeAll(where: { $0.id == id })
+        persistData()
+    }
+
     /// Applica le sostituzioni del glossario su un testo grezzo prima di passarlo all'AI
     func applyGlossary(to text: String) -> String {
         var processedText = text
@@ -165,7 +185,7 @@ final class AppState: ObservableObject {
     }
 
     // MARK: - Persistence
-    private func persistData() {
+    func persistData() {
         if let encoded = try? JSONEncoder().encode(transcriptionHistory) {
             UserDefaults.standard.set(encoded, forKey: "mw_history")
         }
@@ -181,6 +201,9 @@ final class AppState: ObservableObject {
         }
         if let glossaryData = try? JSONEncoder().encode(glossary) {
             UserDefaults.standard.set(glossaryData, forKey: "mw_glossary")
+        }
+        if let customPresetsData = try? JSONEncoder().encode(customPresets) {
+            UserDefaults.standard.set(customPresetsData, forKey: "mw_custom_presets")
         }
         UserDefaults.standard.synchronize()
     }
@@ -222,6 +245,10 @@ final class AppState: ObservableObject {
            let decodedGlossary = try? JSONDecoder().decode([String: String].self, from: glossaryData) {
             glossary = decodedGlossary
         }
+        if let customPresetsData = UserDefaults.standard.data(forKey: "mw_custom_presets"),
+           let decodedPresets = try? JSONDecoder().decode([CustomPreset].self, from: customPresetsData) {
+            customPresets = decodedPresets
+        }
     }
 
     func persistHotkey() {
@@ -231,11 +258,19 @@ final class AppState: ObservableObject {
 
 // MARK: - Data Model
 
+struct CustomPreset: Identifiable, Codable, Equatable {
+    let id: UUID
+    var name: String
+    var icon: String
+    var systemPrompt: String
+    var temperature: Double
+}
+
 struct TranscriptionRecord: Identifiable, Codable {
     let id: UUID
     let timestamp: Date
     let rawText: String
-    let cleanedText: String
+    var cleanedText: String
 
     var wordCount: Int {
         cleanedText.split(separator: " ").count

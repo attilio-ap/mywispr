@@ -16,6 +16,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlayWindow: OverlayWindow!
     private var dashboardWindow: NSWindow!
 
+    // MARK: - Nuovi Stati Interazione (Click-to-Toggle / Hold-to-Talk)
+    private var lastKeyDownTime: Date?
+    private var keyUpTimer: Timer?
+    private var isLockedListening = false
+    private var mouseMonitorLocal: Any?
+    private var mouseMonitorGlobal: Any?
+
     // MARK: - App Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -54,7 +61,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleStartHotkeyRecording),
-            name: .startHotkeyRecording,
+            name: NSNotification.Name("mywispr.startHotkeyRecording"),
             object: nil
         )
 
@@ -66,14 +73,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
+        // Osserva richiesta di refresh di Ollama dalla Dashboard
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleRefreshOllamaNotification),
+            name: NSNotification.Name("mywispr.refreshOllama"),
+            object: nil
+        )
+
         // Mostra la notch in sovrimpressione permanente
         overlayWindow.showCentered()
+        
+        setupMouseMonitors()
         
         Logger.log("MyWispr avviato. AXIsProcessTrusted: \(AXIsProcessTrusted())")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         keyboardManager.stop()
+        if let monitor = mouseMonitorLocal {
+            NSEvent.removeMonitor(monitor)
+        }
+        if let monitor = mouseMonitorGlobal {
+            NSEvent.removeMonitor(monitor)
+        }
     }
 
     // MARK: - Setup
@@ -297,6 +320,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func stopLockedRecording() {
+        isLockedListening = false
+        appState.isRecording = false
+        speechManager.stopRecording()
+    }
+
+    private func setupMouseMonitors() {
+        // Monitor locale per click sinistro (interrompe la registrazione bloccata)
+        mouseMonitorLocal = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
+            guard let self else { return event }
+            if self.isLockedListening {
+                Logger.log("Mouse click locale rilevato. Interrompo registrazione bloccata.")
+                self.stopLockedRecording()
+            }
+            return event
+        }
+        
+        // Monitor globale per click sinistro (interrompe la registrazione bloccata se l'app è in background)
+        mouseMonitorGlobal = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] _ in
+            guard let self else { return }
+            if self.isLockedListening {
+                Logger.log("Mouse click globale rilevato. Interrompo registrazione bloccata.")
+                self.stopLockedRecording()
+            }
+        }
+    }
+
     @objc private func quitApp() {
         keyboardManager.stop()
         NSApplication.shared.terminate(nil)
@@ -313,6 +363,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             showDashboard()
         }
+    }
+
+    @objc private func handleRefreshOllamaNotification() {
+        refreshOllamaStatus()
     }
 }
 
