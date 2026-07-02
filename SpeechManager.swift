@@ -162,6 +162,18 @@ final class SpeechManager {
         resetFinalizeTimer(delay: 0.8)
     }
 
+    /// Annulla immediatamente la registrazione senza consegnare alcuna trascrizione.
+    /// Usato per click accidentali: niente processing, niente incolla, torna subito a idle.
+    func cancelRecording() {
+        guard audioEngine.isRunning else { return }
+        Logger.log("Registrazione ANNULLATA (click accidentale).")
+        finalizeTimer?.invalidate()
+        finalizeTimer = nil
+        lastTranscript = ""
+        cancelCurrentTask()
+    }
+
+
     // MARK: - Internals
 
     private func resetFinalizeTimer(delay: TimeInterval = 2.0) {

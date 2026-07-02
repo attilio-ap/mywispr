@@ -214,11 +214,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             if timeSinceLast < 0.35 {
                 // ── DOPPIO CLICK: entra in Lock-to-Listen ──
-                // La registrazione è già in corso dal primo click: la lasciamo andare.
                 Logger.log("DOPPIO CLICK rilevato (intervallo: \(String(format: "%.2f", timeSinceLast))s) → Lock-to-Listen attivo.")
                 self.isLockedListening = true
-                // Il microfono è già aperto: non serve chiamare startRecording() di nuovo.
-                // Annulliamo il keyUpTimer pendente così non interrompe la sessione.
                 self.keyUpTimer?.invalidate()
                 self.keyUpTimer = nil
             } else {
@@ -240,19 +237,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
-            // Piccolo delay: dà il tempo di rilevare un eventuale secondo keyDown
-            // che trasformerebbe questo in un doppio click
-            Logger.log("Hotkey SU → attendo 0.32s per possibile doppio click.")
+            // Salva il momento del rilascio per misurare la durata della pressione
+            let keyUpTime = Date()
+
+            // Finestra doppio click: aspetta 0.32s prima di confermare il singolo press
             self.keyUpTimer?.invalidate()
             self.keyUpTimer = Timer.scheduledTimer(withTimeInterval: 0.32, repeats: false) { [weak self] _ in
-                guard let self else { return }
-                // Nessun secondo keyDown è arrivato: questo era un singolo press → ferma
-                if !self.isLockedListening {
-                    Logger.log("Singolo hold confermato → stop registrazione.")
+                guard let self, !self.isLockedListening else { return }
+
+                // Misura quanto a lungo il tasto è stato tenuto premuto
+                let holdDuration = self.lastKeyDownTime.map { keyUpTime.timeIntervalSince($0) } ?? 1.0
+
+                // Se la pressione è stata brevissima (< 0.25s) e non c'è ancora nessuna
+                // trascrizione parziale → click accidentale: torna immediatamente a idle
+                if holdDuration < 0.25 && self.appState.partialTranscript.isEmpty {
+                    Logger.log("Click accidentale (hold: \(String(format: "%.2f", holdDuration))s) → annullo e torno a idle.")
+                    self.speechManager.cancelRecording()
+                    self.appState.isRecording = false
+                    self.appState.partialTranscript = ""
+                    self.appState.overlayMode = .idle
+                } else {
+                    Logger.log("Singolo hold confermato (\(String(format: "%.2f", holdDuration))s) → stop registrazione.")
                     self.speechManager.stopRecording()
                 }
             }
         }
+
 
         // Trascrizione parziale in tempo reale
         speechManager.onPartialTranscript = { [weak self] partialText in
