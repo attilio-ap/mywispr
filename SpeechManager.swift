@@ -157,9 +157,9 @@ final class SpeechManager {
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
 
-        // Avvia un timer di sicurezza: se SFSpeechRecognizer non risponde entro 3 secondi,
-        // usiamo l'ultima trascrizione disponibile.
-        resetFinalizeTimer(delay: 3.0)
+        // Timer di sicurezza breve: se SFSpeechRecognizer non risponde entro 0.8s
+        // (click accidentale senza parole), torna in idle senza attendere.
+        resetFinalizeTimer(delay: 0.8)
     }
 
     // MARK: - Internals

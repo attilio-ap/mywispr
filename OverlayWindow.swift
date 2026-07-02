@@ -26,6 +26,16 @@ class OverlayWindow: NSPanel {
         ignoresMouseEvents = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         isReleasedWhenClosed = false
+
+        // MARK: - Vibrant glass backing
+        // Impostiamo NSVisualEffectView come contentView della finestra.
+        // Questo e' il modo corretto su macOS per ottenere la sfocatura del desktop
+        // (blendingMode .behindWindow funziona solo se e' la view radice della finestra).
+        let vibrantView = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
+        vibrantView.material = .popover
+        vibrantView.blendingMode = .behindWindow
+        vibrantView.state = .active
+        contentView = vibrantView
     }
 
     /// Posiziona l'overlay centrato sull'asse orizzontale fisico dello schermo principale e sollevato rispetto alla Dock.
@@ -137,36 +147,21 @@ struct OverlayView: View {
             // Capsula principale con effetto Glassmorphism (Vetro sfocato)
             ZStack {
                 if state.showOfflineAlert {
-                    // Stato di errore offline: usiamo la vista effetto vibrante sfocata reale di macOS
+                    // Errore offline: leggero tint rosso + bordo rosso
                     Capsule()
-                        .fill(Color.clear)
-                        .background(
-                            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
-                                .clipShape(Capsule())
-                        )
+                        .fill(Color.red.opacity(0.10))
                         .overlay(
                             Capsule()
-                                .fill(Color.red.opacity(0.12))
-                        )
-                        .overlay(
-                            Capsule()
-                                .stroke(Color.red.opacity(0.4), lineWidth: 1.0)
+                                .stroke(Color.red.opacity(0.45), lineWidth: 1.0)
                         )
                 } else {
-                    // Sfondo regolare di vetro chiaro stile Apple: effetto vibrante sfocato reale di macOS
+                    // Vetro puro: il pannello NSVisualEffectView sottostante fornisce la sfocatura.
+                    // Qui mettiamo solo un leggerissimo tint bianco satinato + il contorno.
                     Capsule()
-                        .fill(Color.clear)
-                        .background(
-                            VisualEffectView(material: .popover, blendingMode: .behindWindow)
-                                .clipShape(Capsule())
-                        )
+                        .fill(Color.white.opacity(0.18))
                         .overlay(
                             Capsule()
-                                .fill(Color.white.opacity(0.35)) // Tonalità satinata semi-trasparente
-                        )
-                        .overlay(
-                            Capsule()
-                                .stroke(Color.black.opacity(0.18), lineWidth: 1.0) // Contorno fisso definito
+                                .stroke(Color.black.opacity(0.20), lineWidth: 1.0)
                         )
                 }
 
