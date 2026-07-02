@@ -10,12 +10,12 @@ class OverlayWindow: NSPanel {
     init(appState: AppState) {
         self.appState = appState
         
-        // Finestra fisica a dimensione fissa (320x50) per evitare rallentamenti nel ridimensionamento del WindowServer.
+        // Finestra fisica a dimensione fissa (480x60) per evitare tagli del contenuto
         // Utilizziamo il pass-through dei click per rendere cliccabili le aree esterne trasparenti.
-        let size = NSSize(width: 320, height: 50)
+        let size = NSSize(width: 480, height: 60)
         super.init(
             contentRect: NSRect(origin: .zero, size: size),
-            styleMask: [.borderless, .nonactivatingPanel], // Aggiunto .nonactivatingPanel per ignorare l'attivazione al click
+            styleMask: [.borderless, .nonactivatingPanel], // Ignora l'attivazione al click
             backing: .buffered,
             defer: false
         )
@@ -48,6 +48,10 @@ class OverlayWindow: NSPanel {
 
     /// Calcola se un click è interno alla capsula attiva per il pass-through.
     func isPointInsideCapsule(_ point: NSPoint) -> Bool {
+        if appState.showOfflineAlert {
+            return checkContains(width: 200, height: 30, point: point)
+        }
+        
         let mode = appState.overlayMode
         let w: CGFloat
         let h: CGFloat
@@ -58,15 +62,19 @@ class OverlayWindow: NSPanel {
             h = 10
         case .hovered:
             w = 300
-            h = 28
+            h = 30
         case .recording:
-            w = 140
-            h = 28
+            w = appState.partialTranscript.isEmpty ? 140 : 380
+            h = 30
         case .processing:
-            w = 90
-            h = 28
+            w = 190
+            h = 30
         }
         
+        return checkContains(width: w, height: h, point: point)
+    }
+    
+    private func checkContains(width w: CGFloat, height h: CGFloat, point: NSPoint) -> Bool {
         let centerX = frame.width / 2
         let centerY = frame.height / 2
         
@@ -76,7 +84,6 @@ class OverlayWindow: NSPanel {
             width: w,
             height: h
         )
-        
         return rect.contains(point)
     }
 }
@@ -100,72 +107,97 @@ struct OverlayView: View {
     }
 
     private var capsuleWidth: CGFloat {
+        if state.showOfflineAlert {
+            return 200
+        }
         switch state.overlayMode {
         case .idle: return 36
         case .hovered: return 300
-        case .recording: return 140
-        case .processing: return 90
+        case .recording: return state.partialTranscript.isEmpty ? 140 : 380
+        case .processing: return 190
         }
     }
 
     private var capsuleHeight: CGFloat {
         switch state.overlayMode {
         case .idle: return 10
-        default: return 28
+        default: return 30
         }
     }
 
     var body: some View {
-        // La capsula viene posizionata al centro del contenitore trasparente infinito
         ZStack {
-            // Ombra manuale posizionata dietro la capsula
+            // Ombra manuale per eliminare l'alone nero e dare profondità di Z-depth
             Capsule()
-                .fill(Color.black.opacity(0.35))
-                .blur(radius: 4)
-                .offset(y: 2.5)
+                .fill(Color.black.opacity(0.08))
+                .blur(radius: 3)
+                .offset(y: 2)
                 .frame(width: capsuleWidth, height: capsuleHeight)
 
-            // Capsula principale di sfondo e contenuto
+            // Capsula principale con effetto Glassmorphism (Vetro sfocato)
             ZStack {
-                Capsule()
-                    .fill(Color.black)
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(0.45), lineWidth: 0.6)
-                    )
+                if state.showOfflineAlert {
+                    // Stato di errore offline
+                    Capsule()
+                        .fill(Color.red.opacity(0.08))
+                        .background(.ultraThinMaterial)
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.red.opacity(0.35), lineWidth: 0.6)
+                        )
+                } else {
+                    // Sfondo regolare di vetro chiaro stile Apple
+                    Capsule()
+                        .fill(Color.white.opacity(0.65))
+                        .background(.ultraThinMaterial)
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.black.opacity(0.12), lineWidth: 0.5)
+                        )
+                }
 
-                // Contenuto clippato alla forma della capsula
+                // Contenuto clippato
                 ZStack {
-                    switch state.overlayMode {
-                    case .idle:
-                        EmptyView()
-                        
-                    case .hovered:
-                        expandedSettingsView
+                    if state.showOfflineAlert {
+                        offlineAlertView
                             .transition(.opacity.animation(.easeInOut(duration: 0.15)))
-                        
-                    case .recording:
-                        if isSpeaking {
-                            barsView
+                    } else {
+                        switch state.overlayMode {
+                        case .idle:
+                            EmptyView()
+                            
+                        case .hovered:
+                            expandedSettingsView
                                 .transition(.opacity.animation(.easeInOut(duration: 0.15)))
-                        } else {
-                            idleDotsView
+                            
+                        case .recording:
+                            if !state.partialTranscript.isEmpty {
+                                streamingTranscriptView
+                                    .transition(.opacity.animation(.easeInOut(duration: 0.15)))
+                            } else if isSpeaking {
+                                barsView
+                                    .transition(.opacity.animation(.easeInOut(duration: 0.15)))
+                            } else {
+                                idleDotsView
+                                    .transition(.opacity.animation(.easeInOut(duration: 0.15)))
+                            }
+                            
+                        case .processing:
+                            processingView
                                 .transition(.opacity.animation(.easeInOut(duration: 0.15)))
                         }
-                        
-                    case .processing:
-                        processingView
-                            .transition(.opacity.animation(.easeInOut(duration: 0.15)))
                     }
                 }
                 .clipShape(Capsule())
             }
             .frame(width: capsuleWidth, height: capsuleHeight)
-            .contentShape(Capsule()) // Definisce l'area esatta di interazione per mouse-hover e click
+            .contentShape(Capsule())
             .onHover { hovering in
                 isMouseInside = hovering
                 
+                guard !state.showOfflineAlert else { return }
                 guard state.overlayMode == .idle || state.overlayMode == .hovered else { return }
+                
                 if hovering {
                     state.overlayMode = .hovered
                 } else {
@@ -177,8 +209,9 @@ struct OverlayView: View {
                 }
             }
         }
-        // Animazione fluida applicata esclusivamente alle dimensioni della capsula
         .animation(.spring(response: 0.28, dampingFraction: 0.76), value: state.overlayMode)
+        .animation(.spring(response: 0.28, dampingFraction: 0.76), value: state.partialTranscript)
+        .animation(.spring(response: 0.28, dampingFraction: 0.76), value: state.showOfflineAlert)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.clear)
         .onChange(of: state.isRecording) { recording in
@@ -202,8 +235,19 @@ struct OverlayView: View {
         }
     }
 
-    // MARK: - Expanded Settings (Preset Selection)
+    // MARK: - Vista di Errore Offline
+    private var offlineAlertView: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.red)
+            Text("Ollama Offline - Testo Grezzo")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(.red)
+        }
+    }
 
+    // MARK: - Expanded Settings (Preset Selection)
     private var expandedSettingsView: some View {
         HStack(spacing: 8) {
             Circle()
@@ -211,11 +255,10 @@ struct OverlayView: View {
                 .frame(width: 5, height: 5)
             
             Text(state.aiPreset.displayName.uppercased())
-                .font(.custom("Helvetica", size: 8))
-                .fontWeight(.black)
-                .foregroundColor(.white.opacity(0.85))
+                .font(.system(size: 8, weight: .black))
+                .foregroundColor(.primary.opacity(0.85))
                 .lineLimit(1)
-                .frame(width: 100, alignment: .leading)
+                .frame(width: 110, alignment: .leading)
             
             Spacer(minLength: 0)
             
@@ -242,22 +285,45 @@ struct OverlayView: View {
         }) {
             Image(systemName: icon)
                 .font(.system(size: 8, weight: .bold))
-                .foregroundColor(isSelected ? .black : .white)
-                .frame(width: 17, height: 17)
-                .background(isSelected ? Color.white : Color.white.opacity(0.08))
+                .foregroundColor(isSelected ? .white : .primary)
+                .frame(width: 18, height: 18)
+                .background(isSelected ? Color.black : Color.black.opacity(0.06))
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)
     }
 
-    // MARK: - Equalizzatore Audio
+    // MARK: - Trascrizione in Tempo Reale
+    private var streamingTranscriptView: some View {
+        HStack(spacing: 8) {
+            // Indicatore microfono pulsante rosso
+            Image(systemName: "mic.fill")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(.red)
+                .opacity(processingAnimating ? 1.0 : 0.4)
+                .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: processingAnimating)
+            
+            Text(state.partialTranscript)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .truncationMode(.head)
+        }
+        .padding(.horizontal, 12)
+        .onAppear {
+            processingAnimating = true
+        }
+        .onDisappear {
+            processingAnimating = false
+        }
+    }
 
+    // MARK: - Equalizzatore Audio
     private var barsView: some View {
         HStack(spacing: 1.5) {
             ForEach(0..<barCount, id: \.self) { i in
                 RoundedRectangle(cornerRadius: 0.6)
-                    .fill(Color.white)
-                    .shadow(color: Color.white.opacity(0.35), radius: 1, x: 0, y: 0)
+                    .fill(Color.primary)
                     .frame(width: 1.5, height: barHeight(for: i))
             }
         }
@@ -273,12 +339,11 @@ struct OverlayView: View {
     }
 
     // MARK: - Idle Dots
-
     private var idleDotsView: some View {
         HStack(spacing: 5) {
             ForEach(0..<3, id: \.self) { i in
                 Circle()
-                    .fill(Color.white.opacity(0.35))
+                    .fill(Color.primary.opacity(0.35))
                     .frame(width: 3.0, height: 3.0)
                     .scaleEffect(idlePulse ? 1.0 : 0.6)
                     .opacity(idlePulse ? 0.6 : 0.2)
@@ -292,35 +357,23 @@ struct OverlayView: View {
         }
     }
 
-    // MARK: - Processing Dots
-
+    // MARK: - Processing Status
     private var processingView: some View {
-        HStack(spacing: 5) {
-            ForEach(0..<3, id: \.self) { i in
-                Circle()
-                    .fill(Color.white)
-                    .shadow(color: Color.white.opacity(0.4), radius: 1.5, x: 0, y: 0)
-                    .frame(width: 3.5, height: 3.5)
-                    .scaleEffect(processingAnimating ? 1.15 : 0.45)
-                    .opacity(processingAnimating ? 0.95 : 0.25)
-                    .animation(
-                        .easeInOut(duration: 0.4)
-                            .repeatForever(autoreverses: true)
-                            .delay(Double(i) * 0.12),
-                        value: processingAnimating
-                    )
-            }
+        HStack(spacing: 8) {
+            ProgressView()
+                .progressViewStyle(CircularProgressViewStyle())
+                .scaleEffect(0.55)
+                .frame(width: 12, height: 12)
+            
+            Text(state.processingStatusText)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(.primary)
+                .lineLimit(1)
         }
-        .onAppear {
-            processingAnimating = true
-        }
-        .onDisappear {
-            processingAnimating = false
-        }
+        .padding(.horizontal, 10)
     }
 
     // MARK: - Jitter equalizzatore
-
     private func startJitter() {
         jitterTimer?.invalidate()
         jitterTimer = Timer.scheduledTimer(withTimeInterval: 0.07, repeats: true) { _ in

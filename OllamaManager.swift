@@ -16,16 +16,16 @@ final class OllamaManager {
         temperature: Double,
         preset: AIPreset,
         customPrompt: String,
-        completion: @escaping (String) -> Void
+        completion: @escaping (String, Bool) -> Void
     ) {
         let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            DispatchQueue.main.async { completion("") }
+            DispatchQueue.main.async { completion("", true) }
             return
         }
 
         guard let url = URL(string: "http://127.0.0.1:11434/api/generate") else {
-            DispatchQueue.main.async { completion(trimmed) }
+            DispatchQueue.main.async { completion(trimmed, false) }
             return
         }
 
@@ -39,7 +39,7 @@ final class OllamaManager {
         ]
 
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
-            DispatchQueue.main.async { completion(trimmed) }
+            DispatchQueue.main.async { completion(trimmed, false) }
             return
         }
 
@@ -53,7 +53,7 @@ final class OllamaManager {
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error {
                 Logger.log("Ollama ERRORE di rete: \(error.localizedDescription). Uso testo grezzo.")
-                DispatchQueue.main.async { completion(trimmed) }
+                DispatchQueue.main.async { completion(trimmed, false) }
                 return
             }
 
@@ -61,7 +61,7 @@ final class OllamaManager {
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let responseText = json["response"] as? String else {
                 Logger.log("Ollama ERRORE: risposta non valida. Uso testo grezzo.")
-                DispatchQueue.main.async { completion(trimmed) }
+                DispatchQueue.main.async { completion(trimmed, false) }
                 return
             }
 
@@ -71,7 +71,7 @@ final class OllamaManager {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
             Logger.log("Ollama: testo pulito → \(cleaned)")
-            DispatchQueue.main.async { completion(cleaned) }
+            DispatchQueue.main.async { completion(cleaned, true) }
         }.resume()
     }
 
@@ -88,6 +88,32 @@ final class OllamaManager {
         URLSession.shared.dataTask(with: request) { data, response, error in
             let connected = (error == nil && (response as? HTTPURLResponse)?.statusCode == 200)
             DispatchQueue.main.async { completion(connected) }
+        }.resume()
+    }
+
+    /// Verifica se il modello specificato è attualmente caricato in memoria (RAM/VRAM) su Ollama.
+    func isModelLoaded(_ modelName: String, completion: @escaping (Bool) -> Void) {
+        guard let url = URL(string: "http://127.0.0.1:11434/api/ps") else {
+            completion(false)
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 1.0
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            guard let data, error == nil,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let modelsArray = json["models"] as? [[String: Any]] else {
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
+            
+            let loadedNames = modelsArray.compactMap { $0["name"] as? String }
+            let isLoaded = loadedNames.contains { name in
+                name == modelName || name.hasPrefix(modelName + ":") || modelName.hasPrefix(name + ":")
+            }
+            DispatchQueue.main.async { completion(isLoaded) }
         }.resume()
     }
     

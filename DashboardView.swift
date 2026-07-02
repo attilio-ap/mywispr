@@ -1,4 +1,6 @@
 import SwiftUI
+import Speech
+import AVFoundation
 
 struct DashboardView: View {
     @EnvironmentObject var state: AppState
@@ -13,29 +15,33 @@ struct DashboardView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider().background(Color(white: 0.88))
-            
-            // Tab Navigation
-            tabBar
-            Divider().background(Color(white: 0.9))
-            
-            // Tab Content
-            ZStack {
-                Color(white: 0.98).ignoresSafeArea()
+            if !state.hasSpeechPermission || !state.hasMicrophonePermission || !state.hasAccessibilityPermission {
+                onboardingView
+            } else {
+                header
+                Divider().background(Color(white: 0.88))
                 
-                switch selectedTab {
-                case 0:
-                    transcriptionsTab
-                case 1:
-                    aiSettingsTab
-                case 2:
-                    glossaryTab
-                default:
-                    EmptyView()
+                // Tab Navigation
+                tabBar
+                Divider().background(Color(white: 0.9))
+                
+                // Tab Content
+                ZStack {
+                    Color(white: 0.98).ignoresSafeArea()
+                    
+                    switch selectedTab {
+                    case 0:
+                        transcriptionsTab
+                    case 1:
+                        aiSettingsTab
+                    case 2:
+                        glossaryTab
+                    default:
+                        EmptyView()
+                    }
                 }
+                .frame(maxHeight: .infinity)
             }
-            .frame(maxHeight: .infinity)
         }
         .frame(width: 550, height: 530)
         .background(Color.white)
@@ -63,7 +69,7 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text("MYWISPR FLOW")
-                        .font(.custom("Helvetica", size: 16))
+                        .font(.system(size: 16))
                         .fontWeight(.black)
                         .foregroundColor(.black)
                     
@@ -73,7 +79,7 @@ struct DashboardView: View {
                             .fill(state.isOllamaConnected ? Color.green : Color.red)
                             .frame(width: 6, height: 6)
                         Text(state.isOllamaConnected ? "OLLAMA ATTIVO" : "OLLAMA OFFLINE")
-                            .font(.custom("Helvetica", size: 8))
+                            .font(.system(size: 8))
                             .fontWeight(.bold)
                             .foregroundColor(state.isOllamaConnected ? .green : .red)
                     }
@@ -84,14 +90,14 @@ struct DashboardView: View {
                 }
                 
                 Text("Dettatura locale intelligente con intelligenza artificiale")
-                    .font(.custom("Helvetica", size: 10))
+                    .font(.system(size: 10))
                     .foregroundColor(Color(white: 0.5))
             }
             Spacer()
             
             // Info versione o stato
             Text("v1.2")
-                .font(.custom("Helvetica", size: 10))
+                .font(.system(size: 10))
                 .fontWeight(.bold)
                 .foregroundColor(Color(white: 0.7))
         }
@@ -125,7 +131,7 @@ struct DashboardView: View {
                     Image(systemName: icon)
                         .font(.system(size: 10, weight: .bold))
                     Text(title)
-                        .font(.custom("Helvetica", size: 10))
+                        .font(.system(size: 10))
                         .fontWeight(.black)
                 }
                 .foregroundColor(isSelected ? .black : Color(white: 0.55))
@@ -158,14 +164,14 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("CRONOLOGIA TRASCRIZIONI")
-                        .font(.custom("Helvetica", size: 10))
+                        .font(.system(size: 10))
                         .fontWeight(.black)
                         .foregroundColor(Color(white: 0.45))
                     Spacer()
                     if !state.transcriptionHistory.isEmpty {
                         Button(action: { state.clearHistory() }) {
                             Text("AZZERA TUTTO")
-                                .font(.custom("Helvetica", size: 9))
+                                .font(.system(size: 9))
                                 .fontWeight(.bold)
                                 .foregroundColor(.red)
                         }
@@ -196,16 +202,16 @@ struct DashboardView: View {
     private func kpiCard(title: String, value: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title)
-                .font(.custom("Helvetica", size: 8))
+                .font(.system(size: 8))
                 .fontWeight(.bold)
                 .foregroundColor(Color(white: 0.55))
             Text(value)
-                .font(.custom("Helvetica", size: 14))
+                .font(.system(size: 14))
                 .fontWeight(.black)
                 .foregroundColor(.black)
                 .lineLimit(1)
             Text(subtitle)
-                .font(.custom("Helvetica", size: 8))
+                .font(.system(size: 8))
                 .foregroundColor(Color(white: 0.6))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -221,11 +227,11 @@ struct DashboardView: View {
                 .font(.system(size: 24))
                 .foregroundColor(Color(white: 0.7))
             Text("Nessuna trascrizione registrata")
-                .font(.custom("Helvetica", size: 11))
+                .font(.system(size: 11))
                 .fontWeight(.bold)
                 .foregroundColor(Color(white: 0.6))
             Text("Tieni premuto il tuo Hotkey per dettare il testo.")
-                .font(.custom("Helvetica", size: 9))
+                .font(.system(size: 9))
                 .foregroundColor(Color(white: 0.7))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -244,13 +250,13 @@ struct DashboardView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         // Testo elaborato principale
                         Text(record.cleanedText)
-                            .font(.custom("Helvetica", size: 12))
+                            .font(.system(size: 12))
                             .fontWeight(.bold)
                             .foregroundColor(.black)
                             .fixedSize(horizontal: false, vertical: true)
                         
                         Text(record.timestamp, style: .time)
-                            .font(.custom("Helvetica", size: 9))
+                            .font(.system(size: 9))
                             .foregroundColor(Color(white: 0.6))
                     }
                     
@@ -264,7 +270,7 @@ struct DashboardView: View {
                             }
                         }) {
                             Text(isExpanded ? "NASCONDI COMPARA" : "CONFRONTA AI")
-                                .font(.custom("Helvetica", size: 8))
+                                .font(.system(size: 8))
                                 .fontWeight(.bold)
                                 .foregroundColor(isExpanded ? .black : Color(white: 0.45))
                                 .padding(.horizontal, 6)
@@ -284,7 +290,7 @@ struct DashboardView: View {
                             }
                         }) {
                             Text(copiedId == record.id ? "COPIATO" : "COPIA")
-                                .font(.custom("Helvetica", size: 8))
+                                .font(.system(size: 8))
                                 .fontWeight(.bold)
                                 .foregroundColor(copiedId == record.id ? .white : .black)
                                 .padding(.horizontal, 8)
@@ -301,12 +307,12 @@ struct DashboardView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(alignment: .top, spacing: 4) {
                             Text("🔈 PARLATO GREZZO:")
-                                .font(.custom("Helvetica", size: 8))
+                                .font(.system(size: 8))
                                 .fontWeight(.black)
                                 .foregroundColor(.red)
                                 .frame(width: 100, alignment: .leading)
                             Text(record.rawText.isEmpty ? "(nessun suono rilevato)" : record.rawText)
-                                .font(.custom("Helvetica", size: 10))
+                                .font(.system(size: 10))
                                 .foregroundColor(Color(white: 0.45))
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -316,12 +322,12 @@ struct DashboardView: View {
                         
                         HStack(alignment: .top, spacing: 4) {
                             Text("✨ CORRETTO DA AI:")
-                                .font(.custom("Helvetica", size: 8))
+                                .font(.system(size: 8))
                                 .fontWeight(.black)
                                 .foregroundColor(.green)
                                 .frame(width: 100, alignment: .leading)
                             Text(record.cleanedText)
-                                .font(.custom("Helvetica", size: 10))
+                                .font(.system(size: 10))
                                 .foregroundColor(.black)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -349,7 +355,7 @@ struct DashboardView: View {
                 // Sezione Configurazione Hotkey
                 VStack(alignment: .leading, spacing: 8) {
                     Text("TASTO DI ATTIVAZIONE (HOTKEY)")
-                        .font(.custom("Helvetica", size: 10))
+                        .font(.system(size: 10))
                         .fontWeight(.black)
                         .foregroundColor(Color(white: 0.4))
                     
@@ -358,7 +364,7 @@ struct DashboardView: View {
                             NotificationCenter.default.post(name: .startHotkeyRecording, object: nil)
                         }) {
                             Text(state.isRecordingHotkey ? "PREMI UN TASTO..." : KeyboardManager.keyName(for: state.hotkeyKeyCode).uppercased())
-                                .font(.custom("Helvetica", size: 10))
+                                .font(.system(size: 10))
                                 .fontWeight(.bold)
                                 .foregroundColor(state.isRecordingHotkey ? .red : .white)
                                 .padding(.horizontal, 16)
@@ -369,14 +375,14 @@ struct DashboardView: View {
                         .buttonStyle(.plain)
                         
                         Text("Tieni premuto questo tasto per parlare, rilascialo per trascrivere e incollare.")
-                            .font(.custom("Helvetica", size: 9))
+                            .font(.system(size: 9))
                             .foregroundColor(Color(white: 0.5))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     
                     if let rejection = state.hotkeyRejectionMessage {
                         Text(rejection)
-                            .font(.custom("Helvetica", size: 9))
+                            .font(.system(size: 9))
                             .foregroundColor(.red)
                             .padding(.top, 2)
                     }
@@ -388,30 +394,30 @@ struct DashboardView: View {
                 // Sezione Configurazione Modello
                 VStack(alignment: .leading, spacing: 10) {
                     Text("MODELLO LOCALE OLLAMA")
-                        .font(.custom("Helvetica", size: 10))
+                        .font(.system(size: 10))
                         .fontWeight(.black)
                         .foregroundColor(Color(white: 0.4))
                     
                     if state.availableOllamaModels.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("⚠️ Nessun modello rilevato su Ollama localmente.")
-                                .font(.custom("Helvetica", size: 10))
+                                .font(.system(size: 10))
                                 .fontWeight(.bold)
                                 .foregroundColor(.orange)
                             Text("Verifica che Ollama sia in esecuzione (porta 11434) e di aver scaricato un modello (es. 'ollama run qwen2.5:14b' nel terminale). Usando input testuale di fallback:")
-                                .font(.custom("Helvetica", size: 9))
+                                .font(.system(size: 9))
                                 .foregroundColor(Color(white: 0.5))
                             
                             TextField("Inserisci nome modello a mano", text: $state.ollamaModelName)
                                 .textFieldStyle(PlainTextFieldStyle())
                                 .padding(6)
                                 .border(Color.black, width: 1)
-                                .font(.custom("Helvetica", size: 10))
+                                .font(.system(size: 10))
                         }
                     } else {
                         HStack {
                             Text("Modello attivo:")
-                                .font(.custom("Helvetica", size: 10))
+                                .font(.system(size: 10))
                                 .foregroundColor(Color(white: 0.45))
                             
                             Picker("", selection: $state.ollamaModelName) {
@@ -420,7 +426,7 @@ struct DashboardView: View {
                                 }
                             }
                             .labelsHidden()
-                            .font(.custom("Helvetica", size: 10))
+                            .font(.system(size: 10))
                             .frame(width: 220)
                         }
                     }
@@ -429,11 +435,11 @@ struct DashboardView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text("Temperatura AI: \(state.temperature, specifier: "%.1f")")
-                                .font(.custom("Helvetica", size: 10))
+                                .font(.system(size: 10))
                                 .fontWeight(.bold)
                             Spacer()
                             Text(state.temperature <= 0.2 ? "Correzione Letterale" : (state.temperature >= 0.7 ? "Molto Creativo" : "Bilanciato"))
-                                .font(.custom("Helvetica", size: 8))
+                                .font(.system(size: 8))
                                 .foregroundColor(.gray)
                         }
                         
@@ -449,7 +455,7 @@ struct DashboardView: View {
                 // Sezione Preset di Trascrizione
                 VStack(alignment: .leading, spacing: 10) {
                     Text("PRESET DI ELABORAZIONE AI")
-                        .font(.custom("Helvetica", size: 10))
+                        .font(.system(size: 10))
                         .fontWeight(.black)
                         .foregroundColor(Color(white: 0.4))
                     
@@ -458,23 +464,23 @@ struct DashboardView: View {
                             Text(preset.displayName).tag(preset)
                         }
                     }
-                    .font(.custom("Helvetica", size: 10))
+                    .font(.system(size: 10))
                     
                     if state.aiPreset == .custom {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Istruzione Custom Prompt:")
-                                .font(.custom("Helvetica", size: 9))
+                                .font(.system(size: 9))
                                 .fontWeight(.bold)
                                 .foregroundColor(.black)
                             
                             TextEditor(text: $state.customPrompt)
-                                .font(.custom("Helvetica", size: 10))
+                                .font(.system(size: 10))
                                 .frame(height: 70)
                                 .border(Color(white: 0.8), width: 1)
                                 .cornerRadius(2)
                             
                             Text("Scrivi l'istruzione esatta per l'AI. Esempio: 'Correggi e formatta come codice Swift' o 'Traduci in dialetto milanese'.")
-                                .font(.custom("Helvetica", size: 8))
+                                .font(.system(size: 8))
                                 .foregroundColor(.gray)
                         }
                         .padding(.top, 4)
@@ -504,7 +510,7 @@ struct DashboardView: View {
                 .fill(granted ? Color.green : Color.red)
                 .frame(width: 6, height: 6)
             Text(label)
-                .font(.custom("Helvetica", size: 8))
+                .font(.system(size: 8))
                 .fontWeight(.bold)
                 .foregroundColor(Color(white: 0.45))
         }
@@ -521,12 +527,12 @@ struct DashboardView: View {
             // Form Aggiunta Elemento
             VStack(alignment: .leading, spacing: 8) {
                 Text("AGGIUNGI REGOLA DI SOSTITUZIONE")
-                    .font(.custom("Helvetica", size: 10))
+                    .font(.system(size: 10))
                     .fontWeight(.black)
                     .foregroundColor(Color(white: 0.4))
                 
                 Text("Utile per correggere parole che macOS capisce male. Es: 'tulle' viene sostituito automaticamente con 'tool'.")
-                    .font(.custom("Helvetica", size: 9))
+                    .font(.system(size: 9))
                     .foregroundColor(Color(white: 0.5))
                 
                 HStack(spacing: 8) {
@@ -535,7 +541,7 @@ struct DashboardView: View {
                         .padding(6)
                         .background(Color.white)
                         .border(Color(white: 0.8), width: 1)
-                        .font(.custom("Helvetica", size: 10))
+                        .font(.system(size: 10))
                     
                     Image(systemName: "arrow.right")
                         .font(.system(size: 10, weight: .bold))
@@ -546,7 +552,7 @@ struct DashboardView: View {
                         .padding(6)
                         .background(Color.white)
                         .border(Color(white: 0.8), width: 1)
-                        .font(.custom("Helvetica", size: 10))
+                        .font(.system(size: 10))
                     
                     Button(action: {
                         state.addGlossaryItem(word: newWord, replacement: newReplacement)
@@ -554,7 +560,7 @@ struct DashboardView: View {
                         newReplacement = ""
                     }) {
                         Text("AGGIUNGI")
-                            .font(.custom("Helvetica", size: 9))
+                            .font(.system(size: 9))
                             .fontWeight(.bold)
                             .foregroundColor(.white)
                             .padding(.horizontal, 14)
@@ -573,14 +579,14 @@ struct DashboardView: View {
             // Tabella delle regole salvate
             VStack(alignment: .leading, spacing: 8) {
                 Text("REGOLE ATTIVE (\(state.glossary.count))")
-                    .font(.custom("Helvetica", size: 10))
+                    .font(.system(size: 10))
                     .fontWeight(.black)
                     .foregroundColor(Color(white: 0.45))
                 
                 if state.glossary.isEmpty {
                     VStack {
                         Text("Nessuna regola inserita.")
-                            .font(.custom("Helvetica", size: 10))
+                            .font(.system(size: 10))
                             .foregroundColor(.gray)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -591,7 +597,7 @@ struct DashboardView: View {
                         ForEach(state.glossary.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
                             HStack {
                                 Text(key)
-                                    .font(.custom("Helvetica", size: 11))
+                                    .font(.system(size: 11))
                                     .fontWeight(.bold)
                                     .foregroundColor(.red)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -602,7 +608,7 @@ struct DashboardView: View {
                                     .frame(width: 20)
                                 
                                 Text(value)
-                                    .font(.custom("Helvetica", size: 11))
+                                    .font(.system(size: 11))
                                     .fontWeight(.bold)
                                     .foregroundColor(.green)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -640,6 +646,147 @@ struct DashboardView: View {
         if s < 60     { return "\(s)s" }
         if s < 3600   { return "\(s/60)m \(s%60)s" }
         return "\(s/3600)h \((s%3600)/60)m"
+    }
+
+    // MARK: - Onboarding View
+    
+    private var onboardingView: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 8) {
+                Image(systemName: "waveform.circle.fill")
+                    .font(.system(size: 42))
+                    .foregroundColor(.black)
+                
+                Text("Benvenuto in MyWispr")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.black)
+                
+                Text("Per iniziare ad utilizzare la dettatura vocale locale intelligente, configura i permessi richiesti dal sistema operativo.")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(white: 0.45))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+            .padding(.top, 30)
+            
+            VStack(spacing: 12) {
+                // Step 1: Microfono
+                onboardingStep(
+                    icon: "mic.fill",
+                    title: "Accesso al Microfono",
+                    description: "Necessario per catturare la tua voce durante la dettatura.",
+                    granted: state.hasMicrophonePermission,
+                    action: {
+                        AVCaptureDevice.requestAccess(for: .audio) { granted in
+                            DispatchQueue.main.async {
+                                state.hasMicrophonePermission = granted
+                            }
+                        }
+                    }
+                )
+                
+                // Step 2: Riconoscimento vocale
+                onboardingStep(
+                    icon: "brain.head.profile",
+                    title: "Riconoscimento Vocale",
+                    description: "Abilita macOS a trascrivere il parlato in testo.",
+                    granted: state.hasSpeechPermission,
+                    action: {
+                        SFSpeechRecognizer.requestAuthorization { status in
+                            DispatchQueue.main.async {
+                                state.hasSpeechPermission = (status == .authorized)
+                            }
+                        }
+                    }
+                )
+                
+                // Step 3: Accessibilità
+                onboardingStep(
+                    icon: "keyboard.fill",
+                    title: "Accesso all'Accessibilità",
+                    description: "Necessario per rilevare l'hotkey globale e incollare il testo elaborato.",
+                    granted: state.hasAccessibilityPermission,
+                    action: {
+                        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+                        AXIsProcessTrustedWithOptions(options)
+                    }
+                )
+            }
+            .padding(.horizontal, 30)
+            
+            Spacer()
+            
+            if state.hasMicrophonePermission && state.hasSpeechPermission && state.hasAccessibilityPermission {
+                Button(action: {
+                    // Cliccando sul pulsante, l'onboarding sparisce perché le proprietà di stato si aggiornano
+                }) {
+                    Text("PROCEDI ALLA DASHBOARD")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 8)
+                        .background(Color.black)
+                        .cornerRadius(4)
+                }
+                .buttonStyle(.plain)
+                .padding(.bottom, 30)
+            } else {
+                Text("⚠️ Abilita tutte le autorizzazioni sopra indicate per procedere.")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.orange)
+                    .padding(.bottom, 30)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(white: 0.98))
+    }
+    
+    private func onboardingStep(icon: String, title: String, description: String, granted: Bool, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundColor(granted ? .green : .gray)
+                .frame(width: 24, height: 24)
+                .background(granted ? Color.green.opacity(0.08) : Color(white: 0.92))
+                .clipShape(Circle())
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.black)
+                
+                Text(description)
+                    .font(.system(size: 9))
+                    .foregroundColor(Color(white: 0.5))
+            }
+            
+            Spacer()
+            
+            if granted {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.system(size: 11))
+                    Text("CONCESSO")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.green)
+                }
+            } else {
+                Button(action: action) {
+                    Text("CONCEDI")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.black)
+                        .cornerRadius(3)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(10)
+        .background(Color.white)
+        .border(Color(white: 0.9), width: 1)
     }
 }
 

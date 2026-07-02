@@ -7,6 +7,7 @@ import Accelerate
 final class SpeechManager {
 
     var onFinalTranscript: ((String) -> Void)?
+    var onPartialTranscript: ((String) -> Void)?
     var onAudioLevel: ((Float) -> Void)?
     var onSilence: (() -> Void)?
 
@@ -88,6 +89,11 @@ final class SpeechManager {
                 let text = result.bestTranscription.formattedString
                 self.lastTranscript = text
                 Logger.log("Parziale: \(text)")
+
+                // Invia la trascrizione parziale in tempo reale sul main thread
+                DispatchQueue.main.async {
+                    self.onPartialTranscript?(text)
+                }
 
                 // Resetta il timer di finalizzazione ad ogni aggiornamento
                 self.resetFinalizeTimer()

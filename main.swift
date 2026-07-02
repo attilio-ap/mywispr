@@ -162,6 +162,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             Logger.log("onKeyDown ricevuto.")
+            self.appState.partialTranscript = ""
             self.appState.isRecording = true
             self.appState.overlayMode = .recording
             self.speechManager.startRecording()
@@ -174,10 +175,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.speechManager.stopRecording()
         }
 
+        // Trascrizione parziale in tempo reale
+        speechManager.onPartialTranscript = { [weak self] partialText in
+            guard let self else { return }
+            self.appState.partialTranscript = partialText
+        }
+
         // Caso in cui la registrazione vocale si arresta senza parole parlate
         speechManager.onSilence = { [weak self] in
             guard let self else { return }
             Logger.log("Rilevato silenzio, ripristino notch idle.")
+            self.appState.partialTranscript = ""
             self.appState.isRecording = false
             self.appState.isProcessing = false
             self.appState.overlayMode = .idle
@@ -199,32 +207,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             Logger.log("onFinalTranscript: \(rawText)")
             self.appState.isRecording = false
+            self.appState.partialTranscript = ""
             self.appState.audioLevel = 0
             self.appState.overlayMode = .processing
             self.appState.isProcessing = true
+            self.appState.processingStatusText = "Elaborazione..."
  
             // Applica il Glossario prima di inviare a Ollama
             let glossaryText = self.appState.applyGlossary(to: rawText)
             Logger.log("Testo post-glossario inviato a Ollama: \(glossaryText)")
 
-            self.ollamaManager.cleanTranscript(
-                glossaryText,
-                modelName: self.appState.ollamaModelName,
-                temperature: self.appState.temperature,
-                preset: self.appState.aiPreset,
-                customPrompt: self.appState.customPrompt
-            ) { cleaned in
-                self.appState.isProcessing = false
-                self.appState.overlayMode = .idle
- 
-                guard !cleaned.isEmpty else { return }
- 
-                // Aggiungi alla cronologia (usando rawText originale per consentire il diff!)
-                let record = TranscriptionRecord(rawText: rawText, cleanedText: cleaned)
-                self.appState.addRecord(record)
- 
-                // Incolla nella finestra attiva
-                PasteManager.paste(cleaned)
+            // Verifica se il modello Ollama è già caldo in RAM/VRAM
+            self.ollamaManager.isModelLoaded(self.appState.ollamaModelName) { isLoaded in
+                self.appState.processingStatusText = isLoaded ? "Elaborazione..." : "Avvio modello AI..."
+                
+                self.ollamaManager.cleanTranscript(
+                    glossaryText,
+                    modelName: self.appState.ollamaModelName,
+                    temperature: self.appState.temperature,
+                    preset: self.appState.aiPreset,
+                    customPrompt: self.appState.customPrompt
+                ) { cleaned, success in
+                    self.appState.isProcessing = false
+                    self.appState.overlayMode = .idle
+     
+                    if !success {
+                        // Trigger notifica offline/fallback
+                        self.appState.triggerOfflineAlert()
+                    }
+     
+                    guard !cleaned.isEmpty else { return }
+     
+                    // Aggiungi alla cronologia (usando rawText originale per consentire il diff!)
+                    let record = TranscriptionRecord(rawText: rawText, cleanedText: cleaned)
+                    self.appState.addRecord(record)
+     
+                    // Incolla nella finestra attiva
+                    PasteManager.paste(cleaned)
+                }
             }
         }
 

@@ -2,6 +2,8 @@ import Foundation
 import Cocoa
 import Combine
 import SwiftUI
+import Speech
+import AVFoundation
 
 /// Preset AI di trascrizione.
 enum AIPreset: String, CaseIterable, Codable {
@@ -48,9 +50,15 @@ final class AppState: ObservableObject {
     // Modalità della notch sovrimpressa
     @Published var overlayMode: OverlayMode = .idle
 
+    // MARK: - Nuovi Stati UX Raffinati
+    @Published var partialTranscript: String = ""
+    @Published var processingStatusText: String = "Elaborazione..."
+    @Published var showOfflineAlert: Bool = false
+
     // MARK: - Permessi
     @Published var hasSpeechPermission: Bool = false
     @Published var hasMicrophonePermission: Bool = false
+    @Published var hasAccessibilityPermission: Bool = false
 
     // MARK: - Nuove impostazioni AI & Ollama
     @Published var isOllamaConnected: Bool = false
@@ -67,8 +75,43 @@ final class AppState: ObservableObject {
         "opscion": "option"
     ]
 
+    private var permissionPollTimer: Timer?
+
     init() {
         loadPersistedData()
+        self.hasAccessibilityPermission = AXIsProcessTrusted()
+        startPermissionPolling()
+    }
+
+    deinit {
+        permissionPollTimer?.invalidate()
+    }
+
+    // Polling dei permessi per rendere l'interfaccia reattiva in tempo reale
+    func startPermissionPolling() {
+        permissionPollTimer?.invalidate()
+        permissionPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let speech = SFSpeechRecognizer.authorizationStatus() == .authorized
+            let mic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+            let ax = AXIsProcessTrusted()
+            
+            if speech != self.hasSpeechPermission || mic != self.hasMicrophonePermission || ax != self.hasAccessibilityPermission {
+                DispatchQueue.main.async {
+                    self.hasSpeechPermission = speech
+                    self.hasMicrophonePermission = mic
+                    self.hasAccessibilityPermission = ax
+                }
+            }
+        }
+    }
+
+    func triggerOfflineAlert() {
+        showOfflineAlert = true
+        NSSound.beep()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            self.showOfflineAlert = false
+        }
     }
 
     func addRecord(_ record: TranscriptionRecord) {
