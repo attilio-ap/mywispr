@@ -80,7 +80,7 @@ final class AppState: ObservableObject {
 
     init() {
         loadPersistedData()
-        self.hasAccessibilityPermission = AXIsProcessTrusted()
+        refreshPermissions()
         startPermissionPolling()
     }
 
@@ -88,22 +88,23 @@ final class AppState: ObservableObject {
         permissionPollTimer?.invalidate()
     }
 
+    func refreshPermissions() {
+        let speech = SFSpeechRecognizer.authorizationStatus() == .authorized
+        let mic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        let ax = AXIsProcessTrusted()
+        
+        DispatchQueue.main.async {
+            if speech != self.hasSpeechPermission { self.hasSpeechPermission = speech }
+            if mic != self.hasMicrophonePermission { self.hasMicrophonePermission = mic }
+            if ax != self.hasAccessibilityPermission { self.hasAccessibilityPermission = ax }
+        }
+    }
+
     // Polling dei permessi per rendere l'interfaccia reattiva in tempo reale
     func startPermissionPolling() {
         permissionPollTimer?.invalidate()
         permissionPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            let speech = SFSpeechRecognizer.authorizationStatus() == .authorized
-            let mic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-            let ax = AXIsProcessTrusted()
-            
-            if speech != self.hasSpeechPermission || mic != self.hasMicrophonePermission || ax != self.hasAccessibilityPermission {
-                DispatchQueue.main.async {
-                    self.hasSpeechPermission = speech
-                    self.hasMicrophonePermission = mic
-                    self.hasAccessibilityPermission = ax
-                }
-            }
+            self?.refreshPermissions()
         }
     }
 

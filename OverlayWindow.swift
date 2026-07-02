@@ -137,22 +137,28 @@ struct OverlayView: View {
             // Capsula principale con effetto Glassmorphism (Vetro sfocato)
             ZStack {
                 if state.showOfflineAlert {
-                    // Stato di errore offline
+                    // Stato di errore offline: usiamo il riempimento del materiale nativo ritagliato a capsula
                     Capsule()
-                        .fill(Color.red.opacity(0.08))
-                        .background(.ultraThinMaterial)
+                        .fill(.ultraThinMaterial)
                         .overlay(
                             Capsule()
-                                .stroke(Color.red.opacity(0.35), lineWidth: 0.6)
+                                .fill(Color.red.opacity(0.08))
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.red.opacity(0.4), lineWidth: 1.0)
                         )
                 } else {
-                    // Sfondo regolare di vetro chiaro stile Apple
+                    // Sfondo regolare di vetro chiaro stile Apple: materiale nativo ritagliato a capsula
                     Capsule()
-                        .fill(Color.white.opacity(0.65))
-                        .background(.ultraThinMaterial)
+                        .fill(.ultraThinMaterial)
                         .overlay(
                             Capsule()
-                                .stroke(Color.black.opacity(0.12), lineWidth: 0.5)
+                                .fill(Color.white.opacity(0.55))
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.black.opacity(0.16), lineWidth: 1.0) // Contorno fisso
                         )
                 }
 

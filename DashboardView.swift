@@ -64,6 +64,12 @@ struct DashboardView: View {
             }
             .opacity(0)
         )
+        .onAppear {
+            state.refreshPermissions()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            state.refreshPermissions()
+        }
     }
 
     // MARK: - Main Application View (Sidebar Layout)
