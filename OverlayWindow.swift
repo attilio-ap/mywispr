@@ -10,32 +10,20 @@ class OverlayWindow: NSPanel {
     init(appState: AppState) {
         self.appState = appState
         
-        // Finestra fisica a dimensione fissa (480x60) per evitare tagli del contenuto
-        // Utilizziamo il pass-through dei click per rendere cliccabili le aree esterne trasparenti.
         let size = NSSize(width: 480, height: 60)
         super.init(
             contentRect: NSRect(origin: .zero, size: size),
-            styleMask: [.borderless, .nonactivatingPanel], // Ignora l'attivazione al click
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
-        level = .statusBar // Fluttua sopra ogni cosa
+        level = .statusBar
         backgroundColor = .clear
         isOpaque = false
-        hasShadow = false // Rimosso shadow nativo per eliminare ogni traccia di alone rettangolare
+        hasShadow = false
         ignoresMouseEvents = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         isReleasedWhenClosed = false
-
-        // MARK: - Vibrant glass backing
-        // Impostiamo NSVisualEffectView come contentView della finestra.
-        // Questo e' il modo corretto su macOS per ottenere la sfocatura del desktop
-        // (blendingMode .behindWindow funziona solo se e' la view radice della finestra).
-        let vibrantView = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
-        vibrantView.material = .popover
-        vibrantView.blendingMode = .behindWindow
-        vibrantView.state = .active
-        contentView = vibrantView
     }
 
     /// Posiziona l'overlay centrato sull'asse orizzontale fisico dello schermo principale e sollevato rispetto alla Dock.
@@ -137,31 +125,39 @@ struct OverlayView: View {
 
     var body: some View {
         ZStack {
-            // Ombra manuale per eliminare l'alone nero e dare profondità di Z-depth
-            Capsule()
-                .fill(Color.black.opacity(0.08))
-                .blur(radius: 3)
-                .offset(y: 2)
-                .frame(width: capsuleWidth, height: capsuleHeight)
-
-            // Capsula principale con effetto Glassmorphism (Vetro sfocato)
+            // Capsula principale — vetro sagomato
             ZStack {
                 if state.showOfflineAlert {
-                    // Errore offline: leggero tint rosso + bordo rosso
+                    // Stato di errore offline
                     Capsule()
-                        .fill(Color.red.opacity(0.10))
+                        .fill(.ultraThinMaterial)  // sfocatura sagomata alla capsula
                         .overlay(
                             Capsule()
-                                .stroke(Color.red.opacity(0.45), lineWidth: 1.0)
+                                .fill(Color.red.opacity(0.12))
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.red.opacity(0.55), lineWidth: 1.0)
                         )
                 } else {
-                    // Vetro puro: il pannello NSVisualEffectView sottostante fornisce la sfocatura.
-                    // Qui mettiamo solo un leggerissimo tint bianco satinato + il contorno.
+                    // Stato normale: vetro satinato stile Apple
                     Capsule()
-                        .fill(Color.white.opacity(0.18))
+                        .fill(.ultraThinMaterial)  // sfocatura sagomata alla capsula
                         .overlay(
+                            // Leggero tint bianco interno per look "frosted"
                             Capsule()
-                                .stroke(Color.black.opacity(0.20), lineWidth: 1.0)
+                                .fill(Color.white.opacity(0.15))
+                        )
+                        .overlay(
+                            // Contorno esterno definito
+                            Capsule()
+                                .stroke(Color.black.opacity(0.22), lineWidth: 1.0)
+                        )
+                        .overlay(
+                            // Highlight rim interno in alto per effetto vetro 3D
+                            Capsule()
+                                .stroke(Color.white.opacity(0.55), lineWidth: 0.5)
+                                .padding(0.5)
                         )
                 }
 
@@ -201,6 +197,7 @@ struct OverlayView: View {
             }
             .frame(width: capsuleWidth, height: capsuleHeight)
             .contentShape(Capsule())
+            .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 3)  // ombra solo sulla capsula
             .onHover { hovering in
                 isMouseInside = hovering
                 
@@ -209,6 +206,7 @@ struct OverlayView: View {
                 
                 if hovering {
                     state.overlayMode = .hovered
+
                 } else {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                         if !isMouseInside && state.overlayMode == .hovered {

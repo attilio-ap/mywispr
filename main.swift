@@ -158,13 +158,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return self.overlayWindow.isPointInsideCapsule(point)
         }
         
-        // Aggiunge la SwiftUI view come SUBVIEW della NSVisualEffectView (contentView)
-        // in modo che la sfocatura del desktop rimanga attiva sul layer base.
-        if let vibrantBase = overlayWindow.contentView {
-            hostingView.frame = vibrantBase.bounds
-            hostingView.autoresizingMask = [.width, .height]
-            vibrantBase.addSubview(hostingView)
-        }
+        overlayWindow.contentView = hostingView
     }
 
     private func setupDashboardWindow() {
