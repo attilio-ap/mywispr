@@ -176,7 +176,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupCallbacks() {
-        // Hotkey giù → avvia registrazione
+        // ---------------------------------------------------------------
+        // LOGICA DOPPIO CLICK (Double-Press to Lock)
+        //
+        // Stato A - HOLD-TO-TALK:
+        //   Premi e tieni → avvia registrazione immediata
+        //   Rilasci → ferma registrazione e processa
+        //
+        // Stato B - LOCK-TO-LISTEN (mani libere):
+        //   Due pressioni rapide (< 0.35s) → entra in modalità ascolto
+        //   continuo. La seconda pressione NON avvia una nuova registrazione
+        //   (quella già attiva viene mantenuta).
+        //   Per uscire: premi di nuovo l'hotkey, O click sinistro del mouse.
+        // ---------------------------------------------------------------
+
         keyboardManager.onKeyDown = { [weak self] in
             guard let self else { return }
             guard self.appState.hasSpeechPermission && self.appState.hasMicrophonePermission else {
@@ -184,18 +197,61 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.showDashboard()
                 return
             }
-            Logger.log("onKeyDown ricevuto.")
-            self.appState.partialTranscript = ""
-            self.appState.isRecording = true
-            self.appState.overlayMode = .recording
-            self.speechManager.startRecording()
+
+            // ── Se siamo già in Lock-to-Listen: questo keyDown esce dalla modalità ──
+            if self.isLockedListening {
+                Logger.log("Hotkey GIU mentre in ascolto bloccato → uscita da Lock.")
+                self.isLockedListening = false
+                self.appState.isRecording = false
+                self.speechManager.stopRecording()
+                return
+            }
+
+            // ── Rilevamento doppio click ──
+            let now = Date()
+            let timeSinceLast = self.lastKeyDownTime.map { now.timeIntervalSince($0) } ?? Double.infinity
+            self.lastKeyDownTime = now
+
+            if timeSinceLast < 0.35 {
+                // ── DOPPIO CLICK: entra in Lock-to-Listen ──
+                // La registrazione è già in corso dal primo click: la lasciamo andare.
+                Logger.log("DOPPIO CLICK rilevato (intervallo: \(String(format: "%.2f", timeSinceLast))s) → Lock-to-Listen attivo.")
+                self.isLockedListening = true
+                // Il microfono è già aperto: non serve chiamare startRecording() di nuovo.
+                // Annulliamo il keyUpTimer pendente così non interrompe la sessione.
+                self.keyUpTimer?.invalidate()
+                self.keyUpTimer = nil
+            } else {
+                // ── PRIMO CLICK: Hold-to-Talk classico ──
+                Logger.log("Hotkey GIU (hold-to-talk).")
+                self.appState.partialTranscript = ""
+                self.appState.isRecording = true
+                self.appState.overlayMode = .recording
+                self.speechManager.startRecording()
+            }
         }
 
-        // Hotkey su → ferma registrazione
         keyboardManager.onKeyUp = { [weak self] in
             guard let self else { return }
-            Logger.log("onKeyUp ricevuto.")
-            self.speechManager.stopRecording()
+
+            // Se siamo in Lock-to-Listen, il keyUp non fa nulla
+            if self.isLockedListening {
+                Logger.log("Hotkey SU ignorato (Lock-to-Listen attivo).")
+                return
+            }
+
+            // Piccolo delay: dà il tempo di rilevare un eventuale secondo keyDown
+            // che trasformerebbe questo in un doppio click
+            Logger.log("Hotkey SU → attendo 0.32s per possibile doppio click.")
+            self.keyUpTimer?.invalidate()
+            self.keyUpTimer = Timer.scheduledTimer(withTimeInterval: 0.32, repeats: false) { [weak self] _ in
+                guard let self else { return }
+                // Nessun secondo keyDown è arrivato: questo era un singolo press → ferma
+                if !self.isLockedListening {
+                    Logger.log("Singolo hold confermato → stop registrazione.")
+                    self.speechManager.stopRecording()
+                }
+            }
         }
 
         // Trascrizione parziale in tempo reale
@@ -207,6 +263,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Caso in cui la registrazione vocale si arresta senza parole parlate
         speechManager.onSilence = { [weak self] in
             guard let self else { return }
+            // In Lock-to-Listen, un silenzio momentaneo non deve azzerare lo stato
+            if self.isLockedListening {
+                Logger.log("Silenzio rilevato in Lock-to-Listen: riavvio microfono.")
+                self.speechManager.stopRecording()
+                self.appState.partialTranscript = ""
+                // Piccola pausa poi riavvia
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                    guard let self, self.isLockedListening else { return }
+                    self.speechManager.startRecording()
+                }
+                return
+            }
             Logger.log("Rilevato silenzio, ripristino notch idle.")
             self.appState.partialTranscript = ""
             self.appState.isRecording = false
@@ -229,21 +297,51 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         speechManager.onFinalTranscript = { [weak self] rawText in
             guard let self else { return }
             Logger.log("onFinalTranscript: \(rawText)")
+
+            // In Lock-to-Listen: incolla il testo intermedio e riavvia l'ascolto
+            if self.isLockedListening {
+                Logger.log("Lock-to-Listen: trascrizione intermedia pronta, incolla e riavvia microfono.")
+                let glossaryText = self.appState.applyGlossary(to: rawText)
+                self.ollamaManager.isModelLoaded(self.appState.ollamaModelName) { isLoaded in
+                    self.appState.processingStatusText = isLoaded ? "Elaborazione..." : "Avvio modello AI..."
+                    self.ollamaManager.cleanTranscript(
+                        glossaryText,
+                        modelName: self.appState.ollamaModelName,
+                        temperature: self.appState.temperature,
+                        preset: self.appState.aiPreset,
+                        customPrompt: self.appState.customPrompt
+                    ) { cleaned, success in
+                        if !success { self.appState.triggerOfflineAlert() }
+                        guard !cleaned.isEmpty else { return }
+                        let record = TranscriptionRecord(rawText: rawText, cleanedText: cleaned)
+                        self.appState.addRecord(record)
+                        PasteManager.paste(cleaned)
+                        // Riavvia l'ascolto se ancora in lock
+                        if self.isLockedListening {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                                guard let self, self.isLockedListening else { return }
+                                self.speechManager.startRecording()
+                            }
+                        }
+                    }
+                }
+                return
+            }
+
+            // Flusso normale (Hold-to-Talk)
             self.appState.isRecording = false
             self.appState.partialTranscript = ""
             self.appState.audioLevel = 0
             self.appState.overlayMode = .processing
             self.appState.isProcessing = true
             self.appState.processingStatusText = "Elaborazione..."
- 
-            // Applica il Glossario prima di inviare a Ollama
+
             let glossaryText = self.appState.applyGlossary(to: rawText)
             Logger.log("Testo post-glossario inviato a Ollama: \(glossaryText)")
 
-            // Verifica se il modello Ollama è già caldo in RAM/VRAM
             self.ollamaManager.isModelLoaded(self.appState.ollamaModelName) { isLoaded in
                 self.appState.processingStatusText = isLoaded ? "Elaborazione..." : "Avvio modello AI..."
-                
+
                 self.ollamaManager.cleanTranscript(
                     glossaryText,
                     modelName: self.appState.ollamaModelName,
@@ -253,19 +351,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 ) { cleaned, success in
                     self.appState.isProcessing = false
                     self.appState.overlayMode = .idle
-     
-                    if !success {
-                        // Trigger notifica offline/fallback
-                        self.appState.triggerOfflineAlert()
-                    }
-     
+
+                    if !success { self.appState.triggerOfflineAlert() }
                     guard !cleaned.isEmpty else { return }
-     
-                    // Aggiungi alla cronologia (usando rawText originale per consentire il diff!)
+
                     let record = TranscriptionRecord(rawText: rawText, cleanedText: cleaned)
                     self.appState.addRecord(record)
-     
-                    // Incolla nella finestra attiva
                     PasteManager.paste(cleaned)
                 }
             }
