@@ -1,87 +1,102 @@
 # MyWispr 🎙️✨
 
-**MyWispr** è un'applicazione macOS nativa (scritta in Swift) che cattura e trascrive il dettato vocale, ripulendo e formattando il testo trascritto in tempo reale grazie a un modello linguistico locale in esecuzione su **Ollama**.
+**MyWispr** è un'applicazione macOS nativa, leggera ed elegante, scritta in Swift, progettata per rivoluzionare la dettatura vocale. Sfruttando le API di riconoscimento vocale di macOS e l'intelligenza artificiale locale tramite **Ollama**, MyWispr trascrive, corregge, formatta e incolla all'istante il tuo parlato in qualsiasi campo di testo attivo, eliminando errori grammaticali, ripetizioni e intercalari.
 
-L'app presenta un'interfaccia minimale stile "Dynamic Island" (overlay) che mostra l'equalizzatore di registrazione, lo stato di elaborazione dell'AI e permette di cambiare al volo i preset di trascrizione.
+L'interfaccia utente è ispirata alla **Dynamic Island di Apple (Notch)**: un overlay fluttuante e minimale con effetto *glassmorphism* reale, che mostra feedback visivi in tempo reale durante la registrazione e l'elaborazione, espandendosi quando necessario per l'accesso rapido alle configurazioni.
+
+---
+
+## 🌟 Funzionalità Principali
+
+### 1. Esperienza di Dettatura a Doppia Modalità
+*   **Hold-to-Talk (Premi e Parla):** Tieni premuto l'hotkey globale (default: `Opzione Destra`) per registrare, rilascialo per trascrivere ed elaborare. Semplice e immediato.
+*   **Lock-to-Listen (Modalità Mani Libere):** Premi **due volte rapidamente** l'hotkey per attivare la registrazione continua. MyWispr ascolterà costantemente il tuo parlato. Ogni volta che fai una pausa, trascriverà il blocco, lo elaborerà con l'AI, lo incollerà all'istante, e riavvierà automaticamente il microfono per continuare ad ascoltare.
+    *   *Per disattivare il blocco:* Premi nuovamente l'hotkey o fai clic con il tasto sinistro del mouse in un punto qualsiasi dello schermo.
+*   **Protezione dai Click Accidentali:** Se premi l'hotkey per errore per meno di `0.25` secondi senza parlare, la sessione viene annullata all'istante e la notch torna a riposo senza attivare alcuna elaborazione o inserimento di testo.
+
+### 2. Interfaccia Stile "Dynamic Island" (Apple Glassmorphic Overlay)
+*   **Vero Effetto Vetro (Glassmorphism):** Costruita con `.ultraThinMaterial` nativo di macOS e sagomata a capsula. Sfoca e lascia intravedere lo sfondo sottostante in perfetto stile Apple, arricchita da un sottile bordo e da un riflesso di luce superiore.
+*   **Feedback Visivo Dinamico:**
+    *   **Stato Idle:** Una linea sottile ed elegante integrata con lo schermo.
+    *   **Stato Registrazione:** Mostra le barre dell'equalizzatore audio che si muovono al ritmo della tua voce o la trascrizione in tempo reale (streaming transcript) mentre parli.
+    *   **Stato Elaborazione:** Un indicatore animato indica che l'AI locale sta rielaborando il testo.
+*   **Menu Rapido al Passaggio del Mouse:** Passando il puntatore sopra la capsula, questa si espande per mostrarti i preset AI attivi e darti accesso rapido alla Dashboard.
+
+### 3. Elaborazione AI Locale e Sicura al 100% (Ollama)
+*   Nessun dato viene inviato a server esterni. Tutto viene elaborato localmente sul tuo Mac tramite **Ollama**.
+*   **Preset AI Integrati:**
+    *   *Standard:* Trascrizione pulita e fedele all'originale.
+    *   *Formale:* Ottimizza il tono per email e contesti professionali.
+    *   *Elenco Puntato:* Converte il parlato in una lista organizzata per punti.
+    *   *Traduzione:* Traduce all'istante in lingua inglese.
+    *   *Prompt Personalizzato:* Definisci le tue istruzioni specifiche per far formattare il testo all'AI.
+*   **Controllo di Stato Intelligente:** L'app verifica se il modello LLM è già presente nella RAM/VRAM del tuo Mac prima di inviare la richiesta, indicando "Avvio modello AI..." se deve essere caricato, prevenendo lag e attese indefinite.
+*   **Notifiche Offline:** Se Ollama è spento o non raggiungibile, MyWispr ti avvisa visivamente e applica un fallback sicuro per non perdere la trascrizione grezza.
+
+### 4. Gestione Avanzata del Testo e Glossario
+*   **Glossario Personalizzato:** Definisci una lista di parole o sigle personalizzate (es. nomi propri complessi, acronimi aziendali, termini tecnici o codici). L'applicazione sostituirà preventivamente le varianti errate della trascrizione prima dell'invio all'AI.
+*   **Cronologia e Diff Viewer:** Accedi a una cronologia completa delle trascrizioni effettuate. Potrai confrontare graficamente il testo grezzo registrato con quello ripulito dall'AI tramite un sistema di evidenziazione dei cambiamenti (diff viewer).
+
+### 5. Onboarding Intelligente e Gestione Permessi
+*   Guida interattiva iniziale per abilitare i tre permessi richiesti (Microfono, Riconoscimento Vocale, Accessibilità).
+*   Evita i tipici loop infiniti di macOS: cliccando sui pulsanti di onboarding verrai indirizzato direttamente alla specifica sezione delle Impostazioni di Sistema della privacy di macOS.
 
 ---
 
 ## 📋 Requisiti di Sistema
 
-* **Sistema Operativo:** macOS 13.0 Ventura o superiore.
-* **Hardware:** Mac con chip **Apple Silicon** (M1, M2, M3, M4, ecc.) - l'app è configurata per la compilazione su architettura `arm64` in `build.sh`.
-* **Dipendenze Hardware:**
-  * Un microfono funzionante.
-* **Dipendenze Software:**
-  * **Xcode Command Line Tools** (per compilare i sorgenti Swift).
-  * **Ollama** (per l'elaborazione del testo con modelli LLM locali).
+*   **OS:** macOS 13.0 Ventura o superiore.
+*   **Hardware:** Mac con chip **Apple Silicon** (M1, M2, M3, M4, ecc.).
+*   **Software Richiesto:**
+    *   **Xcode Command Line Tools** (per la compilazione).
+    *   **Ollama** (per l'elaborazione AI).
 
 ---
 
 ## 🛠️ Installazione e Compilazione
 
-L'app viene fornita sotto forma di codice sorgente e può essere compilata e installata direttamente nella cartella `/Applications` tramite lo script di compilazione incluso.
+L'applicazione può essere compilata dai sorgenti ed essere installata in `/Applications` usando lo script automatizzato.
 
-### 1. Prerequisiti di compilazione (Xcode Command Line Tools)
-Se non lo hai già fatto, installa i componenti di compilazione di macOS aprendo il Terminale e digitando:
+### 1. Installa gli Xcode Command Line Tools
+Apri il terminale e digita:
 ```bash
 xcode-select --install
 ```
 
-### 2. Installazione di Ollama e download del modello LLM
-1. Scarica e installa **Ollama** da [ollama.com](https://ollama.com).
-2. Avvia Ollama.
-3. Scarica il modello consigliato eseguendo questo comando nel Terminale:
-   ```bash
-   ollama run qwen2.5:14b
-   ```
-   *(Nota: Puoi usare anche altri modelli, come `llama3`, `mistral` o modelli più leggeri come `qwen2.5:7b` o `qwen2.5:3b`. Potrai selezionare il modello direttamente dal pannello delle impostazioni dell'applicazione).*
+### 2. Configura Ollama
+1.  Scarica e installa Ollama da [ollama.com](https://ollama.com).
+2.  Avvia l'applicazione Ollama.
+3.  Scarica il modello predefinito da terminale (ad esempio, Qwen 2.5):
+    ```bash
+    ollama pull qwen2.5:14b
+    ```
+    *(Nota: puoi installare qualsiasi modello, come `llama3`, `mistral`, o varianti più leggere come `qwen2.5:7b` o `qwen2.5:3b`. Potrai sceglierlo comodamente dalle impostazioni dell'app).*
 
-### 3. Compilazione ed esecuzione di MyWispr
-1. Apri il **Terminale** nella cartella del progetto:
-   ```bash
-   cd "/percorso/della/cartella/MyWispr"
-   ```
-2. Rendi lo script di compilazione eseguibile (se non lo è già):
-   ```bash
-   chmod +x build.sh
-   ```
-3. Avvia la compilazione:
-   ```bash
-   ./build.sh
-   ```
-   Lo script compilerà il codice, creerà l'app bundle `MyWispr.app`, la firmerà ad-hoc e la copierà automaticamente nella cartella **Applicazioni** del tuo Mac (`/Applications/MyWispr.app`).
+### 3. Compila MyWispr
+1.  Apri il terminale nella cartella del progetto:
+    ```bash
+    cd "/percorso/di/MyWispr"
+    ```
+2.  Rendi eseguibile lo script di compilazione ed eseguilo:
+    ```bash
+    chmod +x build.sh
+    ./build.sh
+    ```
+    Lo script compilerà i sorgenti Swift, creerà il pacchetto `MyWispr.app`, eseguirà una firma locale ad-hoc per aggirare i controlli del Gatekeeper e lo copierà in `/Applications`.
 
-4. Avvia l'applicazione con il comando:
-   ```bash
-   open /Applications/MyWispr.app
-   ```
-   O semplicemente cercandola in Spotlight.
+3.  Avvia l'applicazione:
+    ```bash
+    open /Applications/MyWispr.app
+    ```
 
 ---
 
-## 🔑 Configurazione Permessi su macOS (FONDAMENTALE)
+## 🔑 Configurazione Permessi su macOS
 
-Al primo avvio (o dopo una nuova compilazione), macOS bloccherà alcune funzionalità dell'app per motivi di privacy. Segui questi passaggi per configurarla correttamente:
+Al primo avvio, MyWispr ti guiderà nella concessione dei permessi tramite un popup di onboarding pulito.
 
-### 1. Accesso al Microfono e Riconoscimento Vocale
-Quando richiesto dall'applicazione, acconsenti all'accesso per il **Microfono** e per il **Riconoscimento Vocale** (Speech Recognition).
-
-### 2. Permessi di Accessibilità (Keyboard Shortcut)
-L'app utilizza le API di Accessibilità per catturare la scorciatoia da tastiera globale (tasto `Opzione Destra` di default) per avviare/fermare la registrazione.
-1. Vai in **Impostazioni di Sistema > Privacy e Sicurezza > Accessibilità**.
-2. Abilita l'interruttore accanto a **MyWispr**.
-3. *Se l'applicazione era già presente ma la scorciatoia non risponde:* Rimuovi l'app dalla lista selezionandola e cliccando sul tasto `-` in basso, quindi avvia l'app e aggiungila nuovamente.
-
----
-
-## 🚀 Come Funziona l'App
-
-1. **Avvio:** Avvia `MyWispr.app`. Vedrai una piccola "notch" (un indicatore ovale minimale) comparire in alto sullo schermo.
-2. **Registrazione:** Tieni premuto o primi il tasto **Opzione Destra (Right Option / Alt Destro)** per iniziare a parlare. L'equalizzatore mostrerà il livello della tua voce.
-3. **Elaborazione:** Rilascia o premi nuovamente il tasto per terminare. L'applicazione trascriverà le tue parole tramite le API native del sistema, invierà la trascrizione grezza a Ollama per ripulirla (correzione errori, rimozione balbettii, formattazione) e infine sostituirà o incollerà automaticamente il testo formattato dove si trova il tuo cursore.
-4. **Dashboard delle Impostazioni:** Passa il mouse sopra la notch per espandere il menu rapido, oppure clicca sull'icona delle impostazioni per configurare:
-   * Preset AI (Standard, Formale, Elenco Puntato, Traduzione Inglese, ecc.)
-   * Selezione del modello Ollama locale.
-   * Scorciatoia da tastiera personalizzata.
-   * Glossario personalizzato (es. per termini tecnici o nomi propri difficili).
+1.  **Microfono & Riconoscimento Vocale:** Clicca su "Concedi" nel pannello di onboarding per acconsentire.
+2.  **Accessibilità (Hotkey Globale):**
+    *   Clicca su "Concedi" accanto a "Accesso all'Accessibilità". Verrai reindirizzato alle Impostazioni di Sistema.
+    *   Attiva il toggle per **MyWispr**.
+    *   **Nota importante per macOS:** Se i permessi non sembrano venire recepiti o l'hotkey non risponde nonostante il toggle attivo, disattiva e riattiva il toggle di MyWispr in Accessibilità per forzare macOS a svuotare la cache dei permessi TCC.
