@@ -123,12 +123,8 @@ final class KeyboardManager {
         Logger.log("AXIsProcessTrusted: \(trusted)")
         
         if !trusted {
-            Logger.log("Permessi di Accessibilità non concessi. Richiedo prompt di sistema...")
-            // Mostra il prompt di sistema per richiedere i permessi
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-            AXIsProcessTrustedWithOptions(options)
-            
-            // Avvia un timer che riprova ogni 2 secondi
+            Logger.log("Permessi di Accessibilita non concessi. Avvio polling silenzioso.")
+            // NON mostrare il popup qui: viene gestito dall'onboarding in DashboardView
             startPermissionPolling()
             return
         }
@@ -136,6 +132,14 @@ final class KeyboardManager {
         startEventTap()
     }
     
+    /// Chiede i permessi di Accessibilit\u00e0 tramite il popup di sistema.
+    /// Va chiamato SOLO UNA VOLTA dall'onboarding, non automaticamente.
+    func requestAccessibilityPermission() {
+        guard !AXIsProcessTrusted() else { return }
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+        AXIsProcessTrustedWithOptions(options)
+    }
+
     private var permissionTimer: Timer?
     
     private func startPermissionPolling() {
@@ -145,7 +149,7 @@ final class KeyboardManager {
             if AXIsProcessTrusted() {
                 timer.invalidate()
                 self.permissionTimer = nil
-                Logger.log("Permessi di Accessibilità concessi! Avvio Event Tap.")
+                Logger.log("Permessi di Accessibilita concessi! Avvio Event Tap.")
                 self.startEventTap()
             }
         }

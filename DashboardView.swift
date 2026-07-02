@@ -1222,9 +1222,17 @@ struct DashboardView: View {
                     description: "Necessario per catturare la tua voce durante la dettatura.",
                     granted: state.hasMicrophonePermission,
                     action: {
-                        AVCaptureDevice.requestAccess(for: .audio) { granted in
-                            DispatchQueue.main.async {
-                                state.hasMicrophonePermission = granted
+                        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+                        if status == .notDetermined {
+                            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                                DispatchQueue.main.async {
+                                    state.hasMicrophonePermission = granted
+                                }
+                            }
+                        } else {
+                            // Già richiesto: apri le impostazioni
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                                NSWorkspace.shared.open(url)
                             }
                         }
                     }
@@ -1237,23 +1245,32 @@ struct DashboardView: View {
                     description: "Abilita macOS a trascrivere il parlato in testo.",
                     granted: state.hasSpeechPermission,
                     action: {
-                        SFSpeechRecognizer.requestAuthorization { status in
-                            DispatchQueue.main.async {
-                                state.hasSpeechPermission = (status == .authorized)
+                        let status = SFSpeechRecognizer.authorizationStatus()
+                        if status == .notDetermined {
+                            SFSpeechRecognizer.requestAuthorization { status in
+                                DispatchQueue.main.async {
+                                    state.hasSpeechPermission = (status == .authorized)
+                                }
+                            }
+                        } else {
+                            // Già richiesto: apri le impostazioni
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition") {
+                                NSWorkspace.shared.open(url)
                             }
                         }
                     }
                 )
                 
-                // Step 3: Accessibilità
+                // Step 3: Accessibilità — sempre tramite Impostazioni di Sistema, mai popup di sistema
                 onboardingStep(
                     icon: "keyboard.fill",
                     title: "Accesso all'Accessibilità",
-                    description: "Necessario per rilevare l'hotkey globale e incollare il testo elaborato.",
+                    description: "Apri le Impostazioni di Sistema per abilitare MyWispr nella sezione Accessibilità.",
                     granted: state.hasAccessibilityPermission,
                     action: {
-                        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-                        AXIsProcessTrustedWithOptions(options)
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                            NSWorkspace.shared.open(url)
+                        }
                     }
                 )
             }
