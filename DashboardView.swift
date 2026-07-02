@@ -1276,10 +1276,29 @@ struct DashboardView: View {
                 .buttonStyle(.plain)
                 .padding(.bottom, 30)
             } else {
-                Text("⚠️ Abilita tutte le autorizzazioni sopra indicate per procedere.")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(.orange)
-                    .padding(.bottom, 30)
+                VStack(spacing: 8) {
+                    Text("⚠️ Abilita tutte le autorizzazioni sopra indicate per procedere.")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.orange)
+                    
+                    Text("Nota: Su macOS, l'abilitazione dell'Accessibilità richiede a volte il riavvio manuale dell'app per avere effetto.")
+                        .font(.system(size: 8))
+                        .foregroundColor(.gray)
+                    
+                    Button(action: {
+                        relaunchApp()
+                    }) {
+                        Text("VERIFICA E RIAVVIA APP")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(Color.white)
+                            .border(Color.black, width: 1)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.bottom, 24)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1339,5 +1358,16 @@ struct DashboardView: View {
         if s < 60     { return "\(s)s" }
         if s < 3600   { return "\(s/60)m \(s%60)s" }
         return "\(s/3600)h \((s%3600)/60)m"
+    }
+
+    private func relaunchApp() {
+        let path = Bundle.main.bundlePath
+        let url = URL(fileURLWithPath: path)
+        let config = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in
+            DispatchQueue.main.async {
+                NSApp.terminate(nil)
+            }
+        }
     }
 }

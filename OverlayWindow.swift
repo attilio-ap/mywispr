@@ -137,28 +137,36 @@ struct OverlayView: View {
             // Capsula principale con effetto Glassmorphism (Vetro sfocato)
             ZStack {
                 if state.showOfflineAlert {
-                    // Stato di errore offline: usiamo il riempimento del materiale nativo ritagliato a capsula
+                    // Stato di errore offline: usiamo la vista effetto vibrante sfocata reale di macOS
                     Capsule()
-                        .fill(.ultraThinMaterial)
+                        .fill(Color.clear)
+                        .background(
+                            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
+                                .clipShape(Capsule())
+                        )
                         .overlay(
                             Capsule()
-                                .fill(Color.red.opacity(0.08))
+                                .fill(Color.red.opacity(0.12))
                         )
                         .overlay(
                             Capsule()
                                 .stroke(Color.red.opacity(0.4), lineWidth: 1.0)
                         )
                 } else {
-                    // Sfondo regolare di vetro chiaro stile Apple: materiale nativo ritagliato a capsula
+                    // Sfondo regolare di vetro chiaro stile Apple: effetto vibrante sfocato reale di macOS
                     Capsule()
-                        .fill(.ultraThinMaterial)
-                        .overlay(
-                            Capsule()
-                                .fill(Color.white.opacity(0.55))
+                        .fill(Color.clear)
+                        .background(
+                            VisualEffectView(material: .popover, blendingMode: .behindWindow)
+                                .clipShape(Capsule())
                         )
                         .overlay(
                             Capsule()
-                                .stroke(Color.black.opacity(0.16), lineWidth: 1.0) // Contorno fisso
+                                .fill(Color.white.opacity(0.35)) // Tonalità satinata semi-trasparente
+                        )
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.black.opacity(0.18), lineWidth: 1.0) // Contorno fisso definito
                         )
                 }
 
@@ -394,5 +402,25 @@ struct OverlayView: View {
     private func stopJitter() {
         jitterTimer?.invalidate()
         jitterTimer = nil
+    }
+}
+
+// MARK: - Visual Effect View Wrapper (macOS Vibrant Glass)
+
+struct VisualEffectView: NSViewRepresentable {
+    let material: NSVisualEffectView.Material
+    let blendingMode: NSVisualEffectView.BlendingMode
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let visualEffectView = NSVisualEffectView()
+        visualEffectView.material = material
+        visualEffectView.blendingMode = blendingMode
+        visualEffectView.state = .active
+        return visualEffectView
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
     }
 }
