@@ -6,11 +6,15 @@ import SwiftUI
 // diventi attiva in primo piano rubando il focus (cursore) all'applicazione in cui sta scrivendo.
 class OverlayWindow: NSPanel {
     let appState: AppState
+    /// Padding intorno alla capsula per assicurare che ombre e hover funzionino correttamente.
+    private let capsulePadding: CGFloat = 12
     
     init(appState: AppState) {
         self.appState = appState
         
-        let size = NSSize(width: 480, height: 60)
+        // Dimensione iniziale piccola (idle); verrà aggiornata dinamicamente.
+        let capsule = OverlayWindow.capsuleSize(for: .idle, showOfflineAlert: false, partialTranscript: "")
+        let size = NSSize(width: capsule.width + 24, height: capsule.height + 24)
         super.init(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -24,6 +28,24 @@ class OverlayWindow: NSPanel {
         ignoresMouseEvents = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         isReleasedWhenClosed = false
+    }
+
+    /// Restituisce la dimensione della capsula in base allo stato corrente.
+    static func capsuleSize(for mode: OverlayMode, showOfflineAlert: Bool, partialTranscript: String) -> NSSize {
+        if showOfflineAlert {
+            return NSSize(width: 200, height: 30)
+        }
+        switch mode {
+        case .idle:
+            return NSSize(width: 36, height: 10)
+        case .hovered:
+            return NSSize(width: 300, height: 30)
+        case .recording:
+            let w: CGFloat = partialTranscript.isEmpty ? 140 : 380
+            return NSSize(width: w, height: 30)
+        case .processing:
+            return NSSize(width: 190, height: 30)
+        }
     }
 
     /// Posiziona l'overlay centrato sull'asse orizzontale fisico dello schermo principale e sollevato rispetto alla Dock.
@@ -44,45 +66,25 @@ class OverlayWindow: NSPanel {
         orderFrontRegardless()
     }
 
-    /// Calcola se un click è interno alla capsula attiva per il pass-through.
-    func isPointInsideCapsule(_ point: NSPoint) -> Bool {
-        if appState.showOfflineAlert {
-            return checkContains(width: 200, height: 30, point: point)
-        }
+    /// Ridimensiona la finestra overlay per adattarla alla capsula corrente, mantenendola centrata.
+    func updateWindowSize() {
+        guard let screen = NSScreen.main else { return }
+        let screenFrame = screen.frame
+        let visibleFrame = screen.visibleFrame
         
-        let mode = appState.overlayMode
-        let w: CGFloat
-        let h: CGFloat
-        
-        switch mode {
-        case .idle:
-            w = 36
-            h = 10
-        case .hovered:
-            w = 300
-            h = 30
-        case .recording:
-            w = appState.partialTranscript.isEmpty ? 140 : 380
-            h = 30
-        case .processing:
-            w = 190
-            h = 30
-        }
-        
-        return checkContains(width: w, height: h, point: point)
-    }
-    
-    private func checkContains(width w: CGFloat, height h: CGFloat, point: NSPoint) -> Bool {
-        let centerX = frame.width / 2
-        let centerY = frame.height / 2
-        
-        let rect = NSRect(
-            x: centerX - w / 2,
-            y: centerY - h / 2,
-            width: w,
-            height: h
+        let capsule = OverlayWindow.capsuleSize(
+            for: appState.overlayMode,
+            showOfflineAlert: appState.showOfflineAlert,
+            partialTranscript: appState.partialTranscript
         )
-        return rect.contains(point)
+        
+        let newW = capsule.width + capsulePadding * 2
+        let newH = capsule.height + capsulePadding * 2
+        
+        let x = screenFrame.midX - newW / 2
+        let y = visibleFrame.minY + 70
+        
+        setFrame(NSRect(x: x, y: y, width: newW, height: newH), display: true, animate: false)
     }
 }
 

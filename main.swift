@@ -153,10 +153,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let hostingView = PassThroughHostingView(rootView: overlayView)
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = NSColor.clear.cgColor
-        hostingView.checkHit = { [weak self] point in
-            guard let self else { return false }
-            return self.overlayWindow.isPointInsideCapsule(point)
-        }
+        hostingView.overlayWindow = overlayWindow
         
         overlayWindow.contentView = hostingView
     }
@@ -392,6 +389,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.appState.hotkeyRejectionMessage = nil
             }
         }
+
+        // MARK: - Ridimensionamento dinamico overlay
+        // Osserva i cambiamenti di stato che influenzano la dimensione della capsula
+        // e ridimensiona la finestra overlay di conseguenza.
+        appState.$overlayMode
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.overlayWindow.updateWindowSize()
+            }
+            .store(in: &cancellables)
+
+        appState.$showOfflineAlert
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.overlayWindow.updateWindowSize()
+            }
+            .store(in: &cancellables)
+
+        appState.$partialTranscript
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.overlayWindow.updateWindowSize()
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Actions
@@ -480,12 +501,29 @@ app.run()
 
 // MARK: - PassThroughHostingView
 
+/// Fa passare i click che cadono nel padding della finestra (fuori dalla capsula).
 class PassThroughHostingView<Content: View>: NSHostingView<Content> {
-    var checkHit: ((NSPoint) -> Bool)?
-    
+    weak var overlayWindow: OverlayWindow?
+
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if let checkHit = checkHit, !checkHit(point) {
-            return nil
+        guard let window = overlayWindow else {
+            return super.hitTest(point)
+        }
+        let capsule = OverlayWindow.capsuleSize(
+            for: window.appState.overlayMode,
+            showOfflineAlert: window.appState.showOfflineAlert,
+            partialTranscript: window.appState.partialTranscript
+        )
+        let centerX = bounds.width / 2
+        let centerY = bounds.height / 2
+        let rect = NSRect(
+            x: centerX - capsule.width / 2,
+            y: centerY - capsule.height / 2,
+            width: capsule.width,
+            height: capsule.height
+        )
+        guard rect.contains(point) else {
+            return nil  // Click nel padding → passa attraverso
         }
         return super.hitTest(point)
     }
