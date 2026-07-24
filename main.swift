@@ -211,14 +211,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             if timeSinceLast < 0.35 {
                 // ── DOPPIO CLICK: entra in Lock-to-Listen ──
-                Logger.log("DOPPIO CLICK rilevato (intervallo: \(String(format: "%.2f", timeSinceLast))s) → Lock-to-Listen attivo.")
-                self.isLockedListening = true
+                // Annulla il keyUpTimer del primo press così non stoppiamo la registrazione
                 self.keyUpTimer?.invalidate()
                 self.keyUpTimer = nil
+                Logger.log("DOPPIO CLICK rilevato (\(String(format: "%.2f", timeSinceLast))s) → Lock-to-Listen attivo.")
+                self.isLockedListening = true
+                // La registrazione avviata dal primo keyDown continua normalmente.
+                // Non avviamo una seconda sessione.
             } else {
                 // ── PRIMO CLICK: Hold-to-Talk classico ──
+                // Assicuriamoci che non ci sia una sessione attiva rimasta sporca
+                if self.appState.isRecording {
+                    Logger.log("WARN: isRecording era true all'avvio di un nuovo hold-to-talk. Cancello la sessione precedente.")
+                    self.speechManager.cancelRecording()
+                    self.appState.isRecording = false
+                    self.appState.isProcessing = false
+                    self.appState.partialTranscript = ""
+                    self.appState.audioLevel = 0
+                }
                 Logger.log("Hotkey GIU (hold-to-talk).")
                 self.appState.partialTranscript = ""
+                self.appState.audioLevel = 0
                 self.appState.isRecording = true
                 self.appState.overlayMode = .recording
                 self.speechManager.startRecording()
@@ -237,29 +250,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Salva il momento del rilascio per misurare la durata della pressione
             let keyUpTime = Date()
 
-            // Finestra doppio click: aspetta 0.32s prima di confermare il singolo press
+            // Finestra doppio click: aspetta 0.32s prima di confermare il singolo press.
+            // Se arriva un secondo keyDown entro 0.32s, il timer viene invalidato
+            // e non facciamo lo stop.
             self.keyUpTimer?.invalidate()
             self.keyUpTimer = Timer.scheduledTimer(withTimeInterval: 0.32, repeats: false) { [weak self] _ in
                 guard let self, !self.isLockedListening else { return }
 
+                // Se nel frattempo non stiamo più registrando (es. onSilence già scattato),
+                // non fare nulla per evitare doppia finalizzazione.
+                guard self.appState.isRecording else {
+                    Logger.log("keyUpTimer: non in registrazione, ignoro.")
+                    return
+                }
+
                 // Misura quanto a lungo il tasto è stato tenuto premuto
                 let holdDuration = self.lastKeyDownTime.map { keyUpTime.timeIntervalSince($0) } ?? 1.0
 
-                // Se la pressione è stata brevissima (< 0.25s) e non c'è ancora nessuna
-                // trascrizione parziale → click accidentale: torna immediatamente a idle
+                // Click brevissimo (<0.25s) senza trascrizione parziale → accidentale
                 if holdDuration < 0.25 && self.appState.partialTranscript.isEmpty {
-                    Logger.log("Click accidentale (hold: \(String(format: "%.2f", holdDuration))s) → annullo e torno a idle.")
+                    Logger.log("Click accidentale (hold: \(String(format: "%.2f", holdDuration))s) → annullo.")
                     self.speechManager.cancelRecording()
                     self.appState.isRecording = false
                     self.appState.partialTranscript = ""
+                    self.appState.audioLevel = 0
                     self.appState.overlayMode = .idle
                 } else {
-                    Logger.log("Singolo hold confermato (\(String(format: "%.2f", holdDuration))s) → stop registrazione.")
+                    Logger.log("Hold confermato (\(String(format: "%.2f", holdDuration))s) → stop registrazione.")
                     self.speechManager.stopRecording()
+                    // Non cambiamo overlayMode qui: lo farà onFinalTranscript/onSilence
                 }
             }
         }
-
 
         // Trascrizione parziale in tempo reale
         speechManager.onPartialTranscript = { [weak self] partialText in
@@ -267,23 +289,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.appState.partialTranscript = partialText
         }
 
-        // Caso in cui la registrazione vocale si arresta senza parole parlate
+        // Silenzio: nessuna parola riconosciuta nella sessione (o sessione troppo corta)
+        // NOTA: con il nuovo SpeechManager, onSilence viene chiamato solo quando
+        // stopRequested=true e la trascrizione è vuota. Non scatta più durante hold-to-talk.
         speechManager.onSilence = { [weak self] in
             guard let self else { return }
-            // In Lock-to-Listen, un silenzio momentaneo non deve azzerare lo stato
+
             if self.isLockedListening {
-                Logger.log("Silenzio rilevato in Lock-to-Listen: riavvio microfono.")
-                self.speechManager.stopRecording()
-                self.appState.partialTranscript = ""
-                // Piccola pausa poi riavvia
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-                    guard let self, self.isLockedListening else { return }
-                    self.speechManager.startRecording()
-                }
+                // In lock-to-listen il riavvio della sessione avviene internamente
+                // a SpeechManager. Questo callback ora non dovrebbe più arrivare in quel contesto,
+                // ma lo gestiamo comunque per sicurezza.
+                Logger.log("Silenzio in Lock-to-Listen: ignorato (SpeechManager riavvia la sessione autonomamente).")
                 return
             }
-            Logger.log("Rilevato silenzio, ripristino notch idle.")
+
+            Logger.log("Silenzio rilevato → ripristino idle.")
+            self.keyUpTimer?.invalidate()
+            self.keyUpTimer = nil
             self.appState.partialTranscript = ""
+            self.appState.audioLevel = 0
             self.appState.isRecording = false
             self.appState.isProcessing = false
             self.appState.overlayMode = .idle
@@ -308,8 +332,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // In Lock-to-Listen: incolla il testo intermedio e riavvia l'ascolto
             if self.isLockedListening {
                 Logger.log("Lock-to-Listen: trascrizione intermedia pronta, incolla e riavvia microfono.")
+                self.appState.overlayMode = .processing
                 let glossaryText = self.appState.applyGlossary(to: rawText)
-                self.ollamaManager.isModelLoaded(self.appState.ollamaModelName) { isLoaded in
+
+                self.ollamaManager.isModelLoaded(self.appState.ollamaModelName) { [weak self] isLoaded in
+                    guard let self else { return }
                     self.appState.processingStatusText = isLoaded ? "Elaborazione..." : "Avvio modello AI..."
                     self.ollamaManager.cleanTranscript(
                         glossaryText,
@@ -317,14 +344,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         temperature: self.appState.temperature,
                         preset: self.appState.aiPreset,
                         customPrompt: self.appState.customPrompt
-                    ) { cleaned, success in
+                    ) { [weak self] cleaned, success in
+                        guard let self else { return }
                         if !success { self.appState.triggerOfflineAlert() }
-                        guard !cleaned.isEmpty else { return }
-                        let record = TranscriptionRecord(rawText: rawText, cleanedText: cleaned)
-                        self.appState.addRecord(record)
-                        PasteManager.paste(cleaned)
-                        // Riavvia l'ascolto se ancora in lock
+                        if !cleaned.isEmpty {
+                            let record = TranscriptionRecord(rawText: rawText, cleanedText: cleaned)
+                            self.appState.addRecord(record)
+                            PasteManager.paste(cleaned)
+                        }
+                        // Riavvia l'ascolto solo se ancora in lock
                         if self.isLockedListening {
+                            self.appState.overlayMode = .recording
+                            self.appState.partialTranscript = ""
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
                                 guard let self, self.isLockedListening else { return }
                                 self.speechManager.startRecording()
@@ -336,6 +367,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             // Flusso normale (Hold-to-Talk)
+            self.keyUpTimer?.invalidate()
+            self.keyUpTimer = nil
             self.appState.isRecording = false
             self.appState.partialTranscript = ""
             self.appState.audioLevel = 0
@@ -346,7 +379,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let glossaryText = self.appState.applyGlossary(to: rawText)
             Logger.log("Testo post-glossario inviato a Ollama: \(glossaryText)")
 
-            self.ollamaManager.isModelLoaded(self.appState.ollamaModelName) { isLoaded in
+            self.ollamaManager.isModelLoaded(self.appState.ollamaModelName) { [weak self] isLoaded in
+                guard let self else { return }
                 self.appState.processingStatusText = isLoaded ? "Elaborazione..." : "Avvio modello AI..."
 
                 self.ollamaManager.cleanTranscript(
@@ -355,7 +389,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     temperature: self.appState.temperature,
                     preset: self.appState.aiPreset,
                     customPrompt: self.appState.customPrompt
-                ) { cleaned, success in
+                ) { [weak self] cleaned, success in
+                    guard let self else { return }
                     self.appState.isProcessing = false
                     self.appState.overlayMode = .idle
 
@@ -384,9 +419,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         keyboardManager.onHotkeyRejected = { [weak self] message in
             guard let self else { return }
             self.appState.hotkeyRejectionMessage = message
-            // Il messaggio scompare dopo 4 secondi
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-                self.appState.hotkeyRejectionMessage = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                self?.appState.hotkeyRejectionMessage = nil
             }
         }
 
