@@ -25,6 +25,9 @@ struct Case {
     var forbidden: [String] = []
     /// Substrings that MUST appear (case-insensitive).
     var required: [String] = []
+    /// Upper bound on output length. Catches a short dictation being inflated
+    /// into paragraphs of context the speaker never provided.
+    var maxLength: Int? = nil
     var note: String = ""
 }
 
@@ -37,6 +40,14 @@ let prefaces = ["ecco il testo", "ecco la trascrizione", "here is the", "here's 
 /// it. Deliberately narrow: polite business formulas like "si prega di" are
 /// exactly what the professional preset is supposed to output, so matching on
 /// politeness produced false positives.
+/// A section heading followed by a statement that nothing was provided. The
+/// model rephrases these endlessly, so match on meaning-bearing fragments
+/// rather than one exact wording.
+let placeholders = ["non specificat", "non è stato fornito", "non sono stati",
+                    "non sono state", "nessun vincolo", "non indicat", "non fornit",
+                    "not specified", "none specified", "not provided", "no specific",
+                    "none given", "not applicable", "n/a"]
+
 let commentary = ["correzione necessaria", "se si intende", "i assume that",
                   "presumo che", "non è chiaro se", "it is unclear whether",
                   "nota del traduttore", "translator's note",
@@ -161,14 +172,27 @@ cases += [
       input: "see you tomorrow at nine to review the quote",
       required: ["domani"],
       note: "EN -> IT idiomatico"),
+ // Reported from real use: a short dictation produced a full scaffold whose
+ // sections were filled with "Non specificato nel dettato vocale", which is
+ // noise the user then has to delete by hand.
+ Case(id: "it-prompt-corto", lang: .italian, preset: .promptBuilder,
+      input: "leggimi il system prompt",
+      maxLength: 300,
+      note: "input breve: niente segnaposto né contesto inventato"),
+ Case(id: "en-prompt-short", lang: .english, preset: .promptBuilder,
+      input: "read me the system prompt",
+      maxLength: 300,
+      note: "short input: no placeholders, no invented context"),
+ // Guards against over-correcting the placeholder fix into always emitting a
+ // single section: a dictation that does supply a role and a task deserves both.
  Case(id: "it-prompt", lang: .italian, preset: .promptBuilder,
-      input: "voglio un prompt per farmi scrivere delle email di vendita",
-      required: ["##"],
-      note: "sezioni markdown"),
+      input: "voglio un prompt che faccia da esperto di vendite e scriva email commerciali per clienti B2B, tono formale",
+      required: ["## ruolo", "## istruzioni"],
+      note: "dettato ricco: più sezioni"),
  Case(id: "en-prompt", lang: .english, preset: .promptBuilder,
-      input: "i want a prompt that writes sales emails for me",
-      required: ["##"],
-      note: "markdown sections"),
+      input: "i want a prompt that acts as a sales expert and writes commercial emails for B2B clients in a formal tone",
+      required: ["## role", "## instructions"],
+      note: "rich dictation: multiple sections"),
 ]
 
 if let p = onlyPreset { cases = cases.filter { $0.preset.rawValue == p } }
@@ -219,6 +243,14 @@ for c in cases {
     for p in prefaces where low.hasPrefix(p) { problems.append("prefazione: \"\(p)\"") }
     for c2 in commentary where low.contains(c2) { problems.append("commento del modello: \"\(c2)\"") }
     if out.hasPrefix("\"") && out.hasSuffix("\"") { problems.append("racchiuso tra virgolette") }
+    if c.preset == .promptBuilder {
+        for ph in placeholders where low.contains(ph) {
+            problems.append("sezione segnaposto: \"\(ph)\"")
+        }
+    }
+    if let maxLength = c.maxLength, out.count > maxLength {
+        problems.append("output sproporzionato: \(out.count) caratteri da \(c.input.count) in ingresso (max \(maxLength))")
+    }
 
     let status = problems.isEmpty ? "PASS" : "FAIL"
     if !problems.isEmpty { failures += 1 }

@@ -201,6 +201,7 @@ The `t(_:_:)` helper takes one argument per language, so step 2 is exhaustive by
 | `DictationStateMachine` | Hold-to-talk and lock-to-listen: double-press detection, accidental taps, exits, stale events, timing boundaries |
 | `TranscriptAccumulator` | Text surviving the recogniser restarts that happen every time you pause |
 | `Analytics` | Word counting across line breaks, totals following history edits, glossary substitution |
+| `OutputCleanup` | Stripping the empty scaffolding sections models add to prompt-builder output |
 | `Prompts` | All six presets in both languages against a live model — normal dictation plus instruction injection, dictated questions, numbers, mangled technical terms |
 
 `Prompts` drives the real `OllamaManager`, so the prompts under test are the ones
@@ -382,6 +383,7 @@ Privacy e Sicurezza*.
 | `DictationStateMachine` | Hold-to-talk e lock-to-listen: doppia pressione, tap accidentali, uscite, eventi obsoleti, soglie temporali |
 | `TranscriptAccumulator` | Il testo che sopravvive ai riavvii del riconoscitore a ogni pausa |
 | `Analytics` | Conteggio parole a capo, totali che seguono le modifiche allo storico, glossario |
+| `OutputCleanup` | Rimozione delle sezioni vuote che i modelli aggiungono all'output del generatore di prompt |
 | `Prompts` | I sei preset in entrambe le lingue su un modello reale — dettatura normale più iniezione di istruzioni, domande dettate, numeri, termini tecnici storpiati |
 
 `Prompts` usa il vero `OllamaManager`, quindi testa esattamente i prompt che vengono
