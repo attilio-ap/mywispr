@@ -124,6 +124,12 @@ need to debug something. The log rotates at 1 MB.
 - Xcode Command Line Tools
 - [Ollama](https://ollama.com) with at least one model pulled
 
+> [!NOTE]
+> **Model capability matters.** The prompts are tuned and regression-tested against
+> `qwen2.5:14b`, where they score 30/30 on a suite covering normal dictation plus
+> edge cases. On a very small model (`llama3.2:1b`) the same suite scores 18/30 and
+> the instruction-injection defence stops holding. Prefer 7b or larger.
+
 ### Installation
 
 ```bash
@@ -298,6 +304,12 @@ Privacy quando serve fare diagnosi. Il file ruota a 1 MB.
 - Apple Silicon (M1 o successivo)
 - Xcode Command Line Tools
 - [Ollama](https://ollama.com) con almeno un modello scaricato
+
+> [!NOTE]
+> **La capacità del modello conta.** I prompt sono tarati e testati contro
+> `qwen2.5:14b`, dove ottengono 30/30 su una suite che copre dettatura normale e
+> casi limite. Su un modello molto piccolo (`llama3.2:1b`) la stessa suite fa 18/30
+> e la difesa contro l'iniezione di istruzioni non regge più. Meglio 7b o superiore.
 
 ### Installazione
 
