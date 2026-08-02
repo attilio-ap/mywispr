@@ -13,8 +13,10 @@ fi
 
 echo "=== Building MyWispr for macOS (Apple Silicon) ==="
 
-# Quit any running instance so the binary is not locked while we overwrite it.
-if pgrep -x "MyWispr" > /dev/null; then
+# Quit any running instance so /Applications/MyWispr.app is not locked while we
+# replace it. Only needed when installing: a --no-install build writes into the
+# project folder and has no reason to disturb a running copy.
+if [ "$INSTALL" -eq 1 ] && pgrep -x "MyWispr" > /dev/null; then
     echo "Closing the running MyWispr instance..."
     killall "MyWispr" 2>/dev/null || true
     sleep 0.5
