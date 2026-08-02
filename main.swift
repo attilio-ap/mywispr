@@ -309,7 +309,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         keyboardManager.onHotkeyRecorded = { [weak self] keyCode in
             guard let self else { return }
-            Logger.log("New hotkey recorded: \(keyCode)")
+            Logger.log("Hotkey applied and persisted: \(keyCode)")
             self.appState.hotkeyKeyCode = keyCode
             self.appState.isRecordingHotkey = false
             self.appState.hotkeyRejectionMessage = nil

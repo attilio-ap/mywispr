@@ -223,6 +223,13 @@ final class KeyboardManager {
     /// Hot path: called for every key and modifier event on the system.
     /// Everything before the `targetKeyCode` check must stay allocation- and I/O-free.
     private func handleTapEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        // While the user is rebinding, the local NSEvent monitor owns the
+        // keystroke. The tap must stay out of the way, or pressing the *current*
+        // hotkey to replace it would also start a dictation.
+        guard !isRecordingNextKey else {
+            return Unmanaged.passUnretained(event)
+        }
+
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
 
         guard keyCode == targetKeyCode else {

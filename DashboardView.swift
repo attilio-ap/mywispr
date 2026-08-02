@@ -9,12 +9,14 @@ struct DashboardView: View {
     /// Stateless client for the local Ollama server, used by the reprocess and pull actions.
     private let ollama = OllamaManager()
 
-    /// Tab selected when the view first appears. Defaults to History; overridable
-    /// so screenshots and previews can target a specific tab.
-    var initialTab: Int = 0
-
     // 0 = History, 1 = Presets, 2 = AI Settings, 3 = Glossary, 4 = Analytics, 5 = Ollama Monitor
-    @State private var selectedTab: Int = 0
+    @State private var selectedTab: Int
+
+    /// - Parameter initialTab: tab to open on. Seeds the state once, so reopening
+    ///   the dashboard keeps whatever tab the user was last on.
+    init(initialTab: Int = 0) {
+        _selectedTab = State(initialValue: initialTab)
+    }
     
     // History tab state
     @State private var selectedRecordId: UUID? = nil
@@ -74,7 +76,6 @@ struct DashboardView: View {
             .opacity(0)
         )
         .onAppear {
-            selectedTab = initialTab
             state.refreshPermissions()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
