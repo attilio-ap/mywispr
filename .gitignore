@@ -1,3 +1,10 @@
+# macOS
 .DS_Store
+
+# Build output
 MyWispr
-MyWispr.app
+MyWispr.app/
+AppIcon.iconset/
+
+# Logs
+*.log

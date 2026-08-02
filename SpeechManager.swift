@@ -3,7 +3,13 @@ import Speech
 import AVFoundation
 import Accelerate
 
-/// Gestisce la registrazione audio e la trascrizione vocale offline tramite SFSpeechRecognizer.
+/// Handles microphone capture and speech transcription via `SFSpeechRecognizer`.
+///
+/// **On-device recognition.** When the selected locale supports it, transcription
+/// runs entirely on the Mac and no audio leaves the machine. If the locale's
+/// on-device model is not installed, `SFSpeechRecognizer` falls back to Apple's
+/// servers — `isOnDeviceRecognition` reports which mode is actually in use so the
+/// UI can tell the user the truth rather than assuming.
 final class SpeechManager {
 
     var onFinalTranscript: ((String) -> Void)?
@@ -11,33 +17,94 @@ final class SpeechManager {
     var onAudioLevel: ((Float) -> Void)?
     var onSilence: (() -> Void)?
 
-    // Permessi - controllati su init, aggiornati tramite callback
+    // Permissions — checked at init, refreshed through the callback
     private(set) var hasSpeechPermission = false
     private(set) var hasMicrophonePermission = false
 
+    /// True when transcription runs fully on-device (no audio sent to Apple).
+    ///
+    /// This is evaluated per locale: the offline model may be installed for one
+    /// language and not another, so it changes when the language changes.
+    private(set) var isOnDeviceRecognition: Bool = false
+
+    /// Language currently configured for recognition.
+    private(set) var language: AppLanguage
+
+    /// True while the audio engine is capturing.
+    var isBusy: Bool { audioEngine.isRunning }
+
     // Internals
-    private let speechRecognizer: SFSpeechRecognizer?
+    private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
     private var lastTranscript = ""
     private var tapInstalled = false
 
-    // Indica se il chiamante ha richiesto uno stop esplicito (keyUp).
-    // Mentre questo è false, il finalizeTimer NON viene mai consegnato
-    // anche se SFSpeech pensa di aver finito — evita interruzioni involontarie.
+    /// Set when the caller explicitly asks to stop (key up).
+    ///
+    /// While this is false a final result is never delivered, even if
+    /// `SFSpeechRecognizer` decides the utterance is over — otherwise a long pause
+    /// would cut the user off mid-sentence.
     private var stopRequested = false
 
-    // Timer per gestire il caso in cui SFSpeechRecognizer non chiami mai isFinal=true
+    /// Fallback for the case where `SFSpeechRecognizer` never reports `isFinal`.
     private var finalizeTimer: Timer?
 
-    // Timer di sicurezza massima: dopo 60s forziamo lo stop anche senza keyUp
-    // (evita che la sessione rimanga attiva per sempre in lock-to-listen)
+    /// Hard ceiling on a single session, so lock-to-listen cannot record forever.
     private var maxDurationTimer: Timer?
 
-    init() {
-        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "it-IT"))
-                        ?? SFSpeechRecognizer(locale: Locale.current)
+    /// Recognition error codes that are expected and should not be logged.
+    /// 1110 = recording stopped (follows `endAudio`), 301 = request cancelled (follows `cancel()`).
+    private static let ignoredErrorCodes: Set<Int> = [1110, 301]
+
+    init(language: AppLanguage) {
+        self.language = language
+        configureRecognizer(for: language)
+    }
+
+    /// Switches the recognition language.
+    ///
+    /// - Important: Never call this while a session is running — swapping the
+    ///   recognizer out from under a live audio tap leaves the engine in an
+    ///   inconsistent state. Any in-flight recording is cancelled first.
+    /// - Returns: `true` if the language is supported and was applied.
+    @discardableResult
+    func reconfigure(for newLanguage: AppLanguage) -> Bool {
+        guard SpeechManager.isSupported(newLanguage) else {
+            Logger.log("Cannot switch to \(newLanguage.rawValue): locale unsupported by SFSpeechRecognizer.")
+            return false
+        }
+
+        if isBusy {
+            Logger.log("Language switch while recording — cancelling the current session first.")
+            cancelRecording()
+        }
+
+        language = newLanguage
+        configureRecognizer(for: newLanguage)
+        return true
+    }
+
+    /// Whether macOS can transcribe this language at all on this Mac.
+    static func isSupported(_ language: AppLanguage) -> Bool {
+        let target = language.recognitionLocale.identifier
+        return SFSpeechRecognizer.supportedLocales().contains { locale in
+            // Match "en-US" exactly, and "en_US" / "en" style identifiers too.
+            let id = locale.identifier.replacingOccurrences(of: "_", with: "-")
+            return id == target || id.hasPrefix(target.prefix(2) + "-")
+        }
+    }
+
+    private func configureRecognizer(for language: AppLanguage) {
+        let recognizer = SFSpeechRecognizer(locale: language.recognitionLocale)
+                      ?? SFSpeechRecognizer(locale: Locale.current)
+        speechRecognizer = recognizer
+
+        // Prefer on-device recognition whenever this locale's model is available.
+        isOnDeviceRecognition = recognizer?.supportsOnDeviceRecognition ?? false
+        Logger.log("Speech recognition configured for \(language.recognitionLocale.identifier): "
+                   + (isOnDeviceRecognition ? "on-device" : "server-based (on-device model unavailable for this locale)"))
     }
 
     // MARK: - Permission Checks
@@ -70,131 +137,63 @@ final class SpeechManager {
 
     func startRecording() {
         guard !audioEngine.isRunning else {
-            Logger.log("SpeechManager: startRecording() chiamato ma audioEngine già in esecuzione.")
+            Logger.log("SpeechManager: startRecording() called but the audio engine is already running.")
             return
         }
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
-            Logger.log("ERRORE: SFSpeechRecognizer non disponibile.")
+            Logger.log("ERROR: SFSpeechRecognizer unavailable.")
             return
         }
 
-        // Annulla task precedente (difensivo)
+        // Defensive: drop any task left over from a previous session.
         cancelCurrentTask()
 
         stopRequested = false
         lastTranscript = ""
 
-        // Prepara la nuova richiesta
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = false
-        self.recognitionRequest = request
+        startRecognitionTask(with: recognizer)
 
-        // Avvia il task di riconoscimento
-        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            guard let self else { return }
-
-            if let result {
-                let text = result.bestTranscription.formattedString
-                self.lastTranscript = text
-                Logger.log("Parziale: \(text)")
-
-                DispatchQueue.main.async {
-                    self.onPartialTranscript?(text)
-                }
-
-                if result.isFinal {
-                    Logger.log("SFSpeech: isFinal=true ricevuto")
-                    // Consegna solo se lo stop è stato esplicitamente richiesto.
-                    // Altrimenti SFSpeech può chiudere la sessione da solo (es. pausa lunga)
-                    // e noi non vogliamo interrompere l'utente.
-                    if self.stopRequested {
-                        self.deliverFinalTranscript()
-                    } else {
-                        // SFSpeech ha chiuso la sessione in autonomia (pausa troppo lunga).
-                        // Riavviamo silenziosamente se siamo ancora in registrazione.
-                        Logger.log("isFinal ricevuto senza stopRequested → riavvio sessione di riconoscimento.")
-                        self.restartRecognitionSession()
-                    }
-                }
-            }
-
-            if let error {
-                let nsError = error as NSError
-                // Errore 1110 = recording stopped (atteso dopo endAudio)
-                // Errore 301 = riconoscimento cancellato (atteso dopo cancel())
-                let ignoredCodes = [1110, 301]
-                if !ignoredCodes.contains(nsError.code) {
-                    Logger.log("Errore riconoscimento: \(error.localizedDescription) (code: \(nsError.code))")
-                }
-
-                // Se c'è un errore vero e lo stop era stato richiesto, consegna quel che abbiamo
-                if self.stopRequested && !ignoredCodes.contains(nsError.code) {
-                    self.deliverFinalTranscript()
-                }
-            }
-        }
-
-        // Installa il tap sull'audio engine
-        let inputNode = audioEngine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-
-        guard format.sampleRate > 0 else {
-            Logger.log("ERRORE: Sample rate del microfono non valido (0). Dispositivo non pronto.")
+        guard installAudioTap() else {
             cancelCurrentTask()
             return
         }
-
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            self?.recognitionRequest?.append(buffer)
-
-            guard let channelData = buffer.floatChannelData?[0] else { return }
-            let frameLength = vDSP_Length(buffer.frameLength)
-            var rms: Float = 0
-            vDSP_rmsqv(channelData, 1, &rms, frameLength)
-            let normalized = min(1.0, rms * 8)
-            DispatchQueue.main.async {
-                self?.onAudioLevel?(normalized)
-            }
-        }
-        tapInstalled = true
 
         audioEngine.prepare()
         do {
             try audioEngine.start()
-            Logger.log("Registrazione avviata.")
+            Logger.log("Recording started.")
             startMaxDurationTimer()
         } catch {
-            Logger.log("ERRORE: Impossibile avviare audioEngine: \(error.localizedDescription)")
+            Logger.log("ERROR: could not start the audio engine: \(error.localizedDescription)")
             cancelCurrentTask()
         }
     }
 
-    /// Richiesto dall'utente (keyUp / stop esplicito).
-    /// Segnala la fine dell'audio e aspetta la trascrizione finale da SFSpeech.
+    /// Requested by the user (key up / explicit stop).
+    /// Signals the end of the audio and waits for the final transcript.
     func stopRecording() {
         guard audioEngine.isRunning else {
-            Logger.log("stopRecording() ignorato: audioEngine non in esecuzione.")
+            Logger.log("stopRecording() ignored: audio engine not running.")
             return
         }
-        Logger.log("Stop registrazione richiesto (utente).")
+        Logger.log("Stop requested by user.")
 
         stopRequested = true
         maxDurationTimer?.invalidate()
         maxDurationTimer = nil
 
-        // Segnala la fine dell'audio al recognizer → triggera isFinal o errore 1110
+        // Tell the recognizer no more audio is coming → triggers isFinal or error 1110.
         recognitionRequest?.endAudio()
         audioEngine.stop()
         removeTapIfNeeded()
 
-        // Timer di sicurezza: se SFSpeech non risponde entro 2s, consegna comunque
+        // Safety net: deliver anyway if the recognizer does not answer in time.
         resetFinalizeTimer(delay: 2.0)
     }
 
-    /// Annulla immediatamente la registrazione senza consegnare alcuna trascrizione.
+    /// Aborts the session immediately without delivering any transcript.
     func cancelRecording() {
-        Logger.log("Registrazione ANNULLATA.")
+        Logger.log("Recording CANCELLED.")
         stopRequested = false
         finalizeTimer?.invalidate()
         finalizeTimer = nil
@@ -204,49 +203,33 @@ final class SpeechManager {
         cancelCurrentTask()
     }
 
-    // MARK: - Internals
+    // MARK: - Recognition Session
 
-    /// Riavvia solo il task di riconoscimento (non l'audio engine).
-    /// Usato quando SFSpeech chiude la sessione in autonomia per pausa lunga.
+    /// Restarts only the recognition task, leaving the audio engine running.
+    ///
+    /// Used when `SFSpeechRecognizer` ends the session by itself after a long
+    /// pause but the user is still holding the hotkey.
     private func restartRecognitionSession() {
         guard audioEngine.isRunning, !stopRequested else { return }
-        Logger.log("Riavvio sessione di riconoscimento SFSpeech (audio engine ancora attivo).")
+        guard let recognizer = speechRecognizer, recognizer.isAvailable else { return }
+        Logger.log("Restarting SFSpeech recognition session (audio engine still active).")
 
-        // Cancella il vecchio task
         recognitionTask?.cancel()
         recognitionTask = nil
 
-        guard let recognizer = speechRecognizer, recognizer.isAvailable else { return }
+        startRecognitionTask(with: recognizer)
 
-        // Crea nuova request mantenendo l'audio engine attivo
+        // The existing tap still appends to the old request, so reinstall it
+        // to pick up the new one.
+        _ = installAudioTap()
+    }
+
+    /// Creates a fresh recognition request and task wired to the shared result handler.
+    private func startRecognitionTask(with recognizer: SFSpeechRecognizer) {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = false
+        request.requiresOnDeviceRecognition = isOnDeviceRecognition
         recognitionRequest = request
-
-        // Reinstalla il tap puntando alla nuova request
-        // (il tap esistente è già installato, ma puntava alla vecchia request)
-        // Rimuoviamo e reinstalliamo per aggiornare il riferimento
-        let inputNode = audioEngine.inputNode
-        inputNode.removeTap(onBus: 0)
-        tapInstalled = false
-
-        let format = inputNode.outputFormat(forBus: 0)
-        guard format.sampleRate > 0 else { return }
-
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            self?.recognitionRequest?.append(buffer)
-
-            guard let channelData = buffer.floatChannelData?[0] else { return }
-            let frameLength = vDSP_Length(buffer.frameLength)
-            var rms: Float = 0
-            vDSP_rmsqv(channelData, 1, &rms, frameLength)
-            let normalized = min(1.0, rms * 8)
-            DispatchQueue.main.async {
-                self?.onAudioLevel?(normalized)
-            }
-        }
-        tapInstalled = true
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
@@ -254,48 +237,90 @@ final class SpeechManager {
             if let result {
                 let text = result.bestTranscription.formattedString
                 self.lastTranscript = text
-                DispatchQueue.main.async { self.onPartialTranscript?(text) }
+
+                DispatchQueue.main.async {
+                    self.onPartialTranscript?(text)
+                }
 
                 if result.isFinal {
+                    // Only deliver when the user asked to stop. Otherwise SFSpeech has
+                    // closed the session on its own (long pause) and we resume quietly.
                     if self.stopRequested {
                         self.deliverFinalTranscript()
                     } else {
+                        Logger.log("isFinal received without a stop request → restarting session.")
                         self.restartRecognitionSession()
                     }
                 }
             }
 
             if let error {
-                let nsError = error as NSError
-                let ignoredCodes = [1110, 301]
-                if !ignoredCodes.contains(nsError.code) {
-                    Logger.log("Errore (sessione riavviata): \(error.localizedDescription)")
-                }
-                if self.stopRequested && !ignoredCodes.contains(nsError.code) {
-                    self.deliverFinalTranscript()
+                let code = (error as NSError).code
+                let isExpected = SpeechManager.ignoredErrorCodes.contains(code)
+
+                if !isExpected {
+                    Logger.log("Recognition error: \(error.localizedDescription) (code: \(code))")
+
+                    // A genuine failure after a stop request: deliver whatever we have.
+                    if self.stopRequested {
+                        self.deliverFinalTranscript()
+                    }
                 }
             }
         }
     }
 
+    /// Installs the microphone tap, replacing any existing one so it always feeds
+    /// the current `recognitionRequest`. Returns false if the input device is not ready.
+    @discardableResult
+    private func installAudioTap() -> Bool {
+        let inputNode = audioEngine.inputNode
+        removeTapIfNeeded()
+
+        let format = inputNode.outputFormat(forBus: 0)
+        guard format.sampleRate > 0 else {
+            Logger.log("ERROR: invalid microphone sample rate (0). Device not ready.")
+            return false
+        }
+
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            self?.recognitionRequest?.append(buffer)
+
+            // Root-mean-square of the buffer drives the equaliser bars.
+            guard let channelData = buffer.floatChannelData?[0] else { return }
+            var rms: Float = 0
+            vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(buffer.frameLength))
+            let normalized = min(1.0, rms * 8)
+            DispatchQueue.main.async {
+                self?.onAudioLevel?(normalized)
+            }
+        }
+        tapInstalled = true
+        return true
+    }
+
+    // MARK: - Timers
+
     private func resetFinalizeTimer(delay: TimeInterval) {
         finalizeTimer?.invalidate()
         finalizeTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
             guard let self else { return }
-            Logger.log("Timer di finalizzazione scattato.")
+            Logger.log("Finalize timer fired.")
             self.deliverFinalTranscript()
         }
     }
 
-    /// Timer massima durata sessione (lock-to-listen): evita sessioni infinite
+    /// Caps a single session at 55s so lock-to-listen cannot record indefinitely.
     private func startMaxDurationTimer() {
         maxDurationTimer?.invalidate()
         maxDurationTimer = Timer.scheduledTimer(withTimeInterval: 55.0, repeats: false) { [weak self] _ in
             guard let self, self.audioEngine.isRunning else { return }
-            Logger.log("Timer massima durata scattato (55s). Stop automatico.")
+            Logger.log("Maximum duration reached (55s). Stopping automatically.")
             self.stopRecording()
         }
     }
+
+    // MARK: - Delivery
 
     private func deliverFinalTranscript() {
         finalizeTimer?.invalidate()
@@ -309,18 +334,20 @@ final class SpeechManager {
         cancelCurrentTask()
 
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            Logger.log("Trascrizione vuota, segnalo silenzio.")
+            Logger.log("Empty transcript, reporting silence.")
             DispatchQueue.main.async { [weak self] in
                 self?.onSilence?()
             }
             return
         }
 
-        Logger.log("Trascrizione finale consegnata: \(text)")
+        Logger.logSensitive("Final transcript delivered", text)
         DispatchQueue.main.async { [weak self] in
             self?.onFinalTranscript?(text)
         }
     }
+
+    // MARK: - Teardown
 
     private func removeTapIfNeeded() {
         if tapInstalled {

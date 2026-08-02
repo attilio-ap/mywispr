@@ -6,33 +6,37 @@ import Charts
 struct DashboardView: View {
     @EnvironmentObject var state: AppState
 
-    @State private var selectedTab: Int = 0 // 0 = Cronologia, 1 = Preset, 2 = Impostazioni, 3 = Glossario, 4 = Analytics, 5 = Ollama Monitor
+    /// Stateless client for the local Ollama server, used by the reprocess and pull actions.
+    private let ollama = OllamaManager()
+
+    // 0 = History, 1 = Presets, 2 = AI Settings, 3 = Glossary, 4 = Analytics, 5 = Ollama Monitor
+    @State private var selectedTab: Int = 0
     
-    // Stati per la Cronologia
+    // History tab state
     @State private var selectedRecordId: UUID? = nil
     @State private var editedCleanedText: String = ""
     @State private var selectedReprocessPreset: AIPreset = .standard
     @State private var isReprocessing: Bool = false
     @State private var searchHistoryQuery: String = ""
 
-    // Stati per i Preset
+    // Preset tab state
     @State private var newPresetName: String = ""
     @State private var newPresetIcon: String = "doc.text.fill"
     @State private var newPresetPrompt: String = ""
     @State private var newPresetTemp: Double = 0.3
     @State private var showAddPresetForm: Bool = false
 
-    // Stati per il Glossario
+    // Glossary tab state
     @State private var newWord: String = ""
     @State private var newReplacement: String = ""
     @State private var searchGlossaryQuery: String = ""
 
-    // Stati per Ollama Monitor
+    // Ollama Monitor tab state
     @State private var pullModelName: String = ""
     @State private var pullStatusMessage: String = ""
     @State private var isPulling: Bool = false
 
-    // Icone supportate per i Preset
+    // Icons offered when creating a custom preset
     private let availableIcons = [
         "square.and.pencil", "doc.text.fill", "briefcase.fill", "list.bullet",
         "character.bubble.fill", "lightbulb.fill", "bolt.fill", "gear",
@@ -58,7 +62,7 @@ struct DashboardView: View {
                 .keyboardShortcut("q", modifiers: .command)
 
                 Button(action: {
-                    NotificationCenter.default.post(name: NSNotification.Name("mywispr.toggleDashboard"), object: nil)
+                    NotificationCenter.default.post(name: .mywisprToggleDashboard, object: nil)
                 }) { EmptyView() }
                 .keyboardShortcut("d", modifiers: .command)
             }
@@ -118,7 +122,7 @@ struct DashboardView: View {
 
     private var sidebarView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // App Brand
+            // App brand
             HStack(spacing: 8) {
                 Image(systemName: "waveform.circle.fill")
                     .font(.system(size: 20, weight: .bold))
@@ -131,26 +135,26 @@ struct DashboardView: View {
             .padding(.top, 20)
             .padding(.bottom, 24)
             
-            // Menu Items
+            // Menu items
             VStack(spacing: 4) {
-                sidebarButton(title: "Cronologia", icon: "waveform", index: 0)
-                sidebarButton(title: "Personalizza Preset", icon: "slider.horizontal.3", index: 1)
-                sidebarButton(title: "Impostazioni AI", icon: "cpu", index: 2)
-                sidebarButton(title: "Glossario Tecnico", icon: "character.book.closed", index: 3)
-                sidebarButton(title: "Statistiche & Analytics", icon: "chart.bar.xaxis", index: 4)
-                sidebarButton(title: "Monitor Ollama", icon: "speedometer", index: 5)
+                sidebarButton(title: state.l10n.sidebarHistory, icon: "waveform", index: 0)
+                sidebarButton(title: state.l10n.sidebarPresets, icon: "slider.horizontal.3", index: 1)
+                sidebarButton(title: state.l10n.sidebarSettings, icon: "cpu", index: 2)
+                sidebarButton(title: state.l10n.sidebarGlossary, icon: "character.book.closed", index: 3)
+                sidebarButton(title: state.l10n.sidebarAnalytics, icon: "chart.bar.xaxis", index: 4)
+                sidebarButton(title: state.l10n.sidebarMonitor, icon: "speedometer", index: 5)
             }
             .padding(.horizontal, 8)
             
             Spacer()
             
-            // Footer - Connessione Status
+            // Footer - connection status
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Circle()
                         .fill(state.isOllamaConnected ? Color.green : Color.red)
                         .frame(width: 6, height: 6)
-                    Text(state.isOllamaConnected ? "Ollama Connesso" : "Ollama Offline")
+                    Text(state.isOllamaConnected ? state.l10n.sidebarOllamaConnected : state.l10n.sidebarOllamaOffline)
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(state.isOllamaConnected ? .green : .red)
                 }
@@ -159,7 +163,7 @@ struct DashboardView: View {
                 .background(state.isOllamaConnected ? Color.green.opacity(0.08) : Color.red.opacity(0.08))
                 .cornerRadius(4)
                 
-                Text("Versione 2.0 (Apple Pro)")
+                Text(state.l10n.sidebarVersion(Bundle.main.appVersion))
                     .font(.system(size: 8))
                     .foregroundColor(Color(white: 0.6))
             }
@@ -210,28 +214,28 @@ struct DashboardView: View {
 
     private func tabTitle(for index: Int) -> String {
         switch index {
-        case 0: return "CRONOLOGIA E EDITOR"
-        case 1: return "GESTIONE PRESET AI"
-        case 2: return "IMPOSTAZIONI AI & MODELLI"
-        case 3: return "GLOSSARIO REGOLE"
-        case 4: return "STATISTICHE & ANALYTICS"
-        case 5: return "LIVE MONITOR OLLAMA"
+        case 0: return state.l10n.tabTitleHistory
+        case 1: return state.l10n.tabTitlePresets
+        case 2: return state.l10n.tabTitleSettings
+        case 3: return state.l10n.tabTitleGlossary
+        case 4: return state.l10n.tabTitleAnalytics
+        case 5: return state.l10n.tabTitleMonitor
         default: return ""
         }
     }
 
-    // MARK: - Tab 0: Cronologia & Editor
+    // MARK: - Tab 0: History & Editor
 
     private var transcriptionsTab: some View {
         HStack(spacing: 0) {
-            // Lista Sinistra
+            // Left-hand list
             VStack(spacing: 8) {
-                // Barra di ricerca
+                // Search bar
                 HStack {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 10))
                         .foregroundColor(.gray)
-                    TextField("Cerca nello storico...", text: $searchHistoryQuery)
+                    TextField(state.l10n.historySearchPlaceholder, text: $searchHistoryQuery)
                         .textFieldStyle(PlainTextFieldStyle())
                         .font(.system(size: 10))
                 }
@@ -244,7 +248,7 @@ struct DashboardView: View {
                 if filteredHistory.isEmpty {
                     VStack {
                         Spacer()
-                        Text("Nessun record trovato")
+                        Text(state.l10n.historyNoRecords)
                             .font(.system(size: 10))
                             .foregroundColor(.gray)
                         Spacer()
@@ -264,7 +268,7 @@ struct DashboardView: View {
                                         .font(.system(size: 8))
                                         .foregroundColor(.gray)
                                     Spacer()
-                                    Text("\(record.wordCount) parole")
+                                    Text(state.l10n.historyWordCount(record.wordCount))
                                         .font(.system(size: 8))
                                         .foregroundColor(.gray)
                                 }
@@ -289,21 +293,21 @@ struct DashboardView: View {
             
             Divider().background(Color(white: 0.88))
             
-            // Dettaglio/Editor Destra
+            // Right-hand detail / editor
             ZStack {
                 if let recordId = selectedRecordId, let record = state.transcriptionHistory.first(where: { $0.id == recordId }) {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 14) {
-                            Text("Dettagli Registrazione (\(record.timestamp, style: .date) alle \(record.timestamp, style: .time))")
+                            Text("\(state.l10n.historyRecordDetails) (\(record.timestamp, style: .date) \(state.l10n.historyAt) \(record.timestamp, style: .time))")
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundColor(.gray)
 
-                            // Testo Originale (Raw)
+                            // Original (raw) text
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("🔈 PARLATO GREZZO")
+                                Text(state.l10n.historyRawSpeech)
                                     .font(.system(size: 8, weight: .black))
                                     .foregroundColor(.red)
-                                Text(record.rawText.isEmpty ? "(Silenzio rilevato)" : record.rawText)
+                                Text(record.rawText.isEmpty ? state.l10n.historySilenceDetected : record.rawText)
                                     .font(.system(size: 10))
                                     .foregroundColor(Color(white: 0.45))
                                     .padding(8)
@@ -312,9 +316,9 @@ struct DashboardView: View {
                                     .border(Color(white: 0.9), width: 1)
                             }
 
-                            // Editor Testo Pulito
+                            // Cleaned-text editor
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("✨ EDIT TESTO CORRETTO (AI)")
+                                Text(state.l10n.historyEditedText)
                                     .font(.system(size: 8, weight: .black))
                                     .foregroundColor(.green)
                                 
@@ -326,12 +330,12 @@ struct DashboardView: View {
                                     .border(Color(white: 0.85), width: 1)
                             }
 
-                            // Bottoni Salva / Copia / Cancella
+                            // Save / Copy / Delete buttons
                             HStack(spacing: 12) {
                                 Button(action: {
                                     state.updateRecord(id: record.id, newCleanedText: editedCleanedText)
                                 }) {
-                                    Text("SALVA MODIFICHE")
+                                    Text(state.l10n.historySaveChanges)
                                         .font(.system(size: 9, weight: .bold))
                                         .foregroundColor(.white)
                                         .padding(.horizontal, 14)
@@ -345,7 +349,7 @@ struct DashboardView: View {
                                     NSPasteboard.general.clearContents()
                                     NSPasteboard.general.setString(editedCleanedText, forType: .string)
                                 }) {
-                                    Text("COPIA NEGLI APPUNTI")
+                                    Text(state.l10n.historyCopyClipboard)
                                         .font(.system(size: 9, weight: .bold))
                                         .foregroundColor(.black)
                                         .padding(.horizontal, 14)
@@ -360,16 +364,16 @@ struct DashboardView: View {
 
                             Divider().background(Color(white: 0.9))
 
-                            // Ri-elaborazione Testo con Preset
+                            // Re-run the text through a different preset
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("🔄 RI-ELABORA CON ALTRO PRESET")
+                                Text(state.l10n.historyReprocess)
                                     .font(.system(size: 8, weight: .black))
                                     .foregroundColor(.black)
                                 
                                 HStack(spacing: 10) {
                                     Picker("", selection: $selectedReprocessPreset) {
                                         ForEach(AIPreset.allCases, id: \.self) { preset in
-                                            Text(preset.displayName).tag(preset)
+                                            Text(state.l10n.presetName(preset)).tag(preset)
                                         }
                                     }
                                     .labelsHidden()
@@ -382,7 +386,7 @@ struct DashboardView: View {
                                             if isReprocessing {
                                                 ProgressView().scaleEffect(0.5).frame(width: 10, height: 10)
                                             }
-                                            Text(isReprocessing ? "ELABORAZIONE..." : "APPLICA PRESET")
+                                            Text(isReprocessing ? state.l10n.historyProcessing : state.l10n.historyApplyPreset)
                                                 .font(.system(size: 9, weight: .bold))
                                         }
                                         .foregroundColor(.white)
@@ -406,7 +410,7 @@ struct DashboardView: View {
                         Image(systemName: "doc.text.magnifyingglass")
                             .font(.system(size: 24))
                             .foregroundColor(.gray)
-                        Text("Seleziona una trascrizione per visualizzare o modificarne il testo.")
+                        Text(state.l10n.historyEmptySelection)
                             .font(.system(size: 10))
                             .foregroundColor(.gray)
                     }
@@ -432,16 +436,16 @@ struct DashboardView: View {
             return
         }
         isReprocessing = true
-        let reprocessManager = OllamaManager(modelName: state.ollamaModelName)
-        
+
         let glossaryText = state.applyGlossary(to: record.rawText)
-        
-        reprocessManager.cleanTranscript(
+
+        ollama.cleanTranscript(
             glossaryText,
             modelName: state.ollamaModelName,
             temperature: state.temperature,
             preset: selectedReprocessPreset,
-            customPrompt: state.customPrompt
+            customPrompt: state.customPrompt,
+            language: state.dictationLanguage
         ) { cleaned, success in
             isReprocessing = false
             if success && !cleaned.isEmpty {
@@ -453,19 +457,19 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: - Tab 1: Gestione Preset AI
+    // MARK: - Tab 1: AI Preset Management
 
     private var presetsTab: some View {
         VStack(spacing: 12) {
-            // Lista dei Preset Personalizzati
+            // List of custom presets
             VStack(alignment: .leading, spacing: 8) {
-                Text("I TUOI PRESET PERSONALIZZATI")
+                Text(state.l10n.presetsYourCustom)
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(Color(white: 0.45))
                 
                 if state.customPresets.isEmpty {
                     VStack {
-                        Text("Nessun preset personalizzato creato. Puoi definirne uno sotto.")
+                        Text(state.l10n.presetsEmpty)
                             .font(.system(size: 10))
                             .foregroundColor(.gray)
                     }
@@ -495,18 +499,18 @@ struct DashboardView: View {
                                 Spacer()
                                 
                                 HStack(spacing: 12) {
-                                    Text("Temp: \(preset.temperature, specifier: "%.1f")")
+                                    Text(state.l10n.presetsTemp(preset.temperature))
                                         .font(.system(size: 9))
                                         .foregroundColor(.gray)
                                     
                                     Button(action: {
-                                        // Applica il prompt e la temperatura per attivarlo come custom
+                                        // Apply the prompt and temperature, activating it as the custom preset
                                         state.aiPreset = .custom
                                         state.customPrompt = preset.systemPrompt
                                         state.temperature = preset.temperature
                                         state.persistData()
                                     }) {
-                                        Text("ATTIVA")
+                                        Text(state.l10n.presetsActivate)
                                             .font(.system(size: 8, weight: .bold))
                                             .foregroundColor(.white)
                                             .padding(.horizontal, 8)
@@ -541,24 +545,24 @@ struct DashboardView: View {
             
             Divider().background(Color(white: 0.9)).padding(.horizontal, 20)
 
-            // Form aggiunta Preset
+            // Add-preset form
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("CREA UN NUOVO PRESET")
+                    Text(state.l10n.presetsCreateNew)
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(Color(white: 0.45))
                     Spacer()
                 }
 
                 HStack(spacing: 12) {
-                    TextField("Nome Preset (es. E-Mail Formale)", text: $newPresetName)
+                    TextField(state.l10n.presetsNamePlaceholder, text: $newPresetName)
                         .textFieldStyle(PlainTextFieldStyle())
                         .padding(6)
                         .background(Color.white)
                         .border(Color(white: 0.8), width: 1)
                         .font(.system(size: 10))
                     
-                    Picker("Icona:", selection: $newPresetIcon) {
+                    Picker(state.l10n.presetsIconLabel, selection: $newPresetIcon) {
                         ForEach(availableIcons, id: \.self) { icon in
                             Image(systemName: icon).tag(icon)
                         }
@@ -568,7 +572,7 @@ struct DashboardView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Prompt di elaborazione (Istruzioni fornite al modello LLM):")
+                    Text(state.l10n.presetsPromptLabel)
                         .font(.system(size: 9, weight: .bold))
                     TextEditor(text: $newPresetPrompt)
                         .font(.system(size: 10))
@@ -579,7 +583,7 @@ struct DashboardView: View {
 
                 HStack {
                     Slider(value: $newPresetTemp, in: 0.0...1.0, step: 0.1) {
-                        Text("Temp AI: \(newPresetTemp, specifier: "%.1f")").font(.system(size: 9))
+                        Text(state.l10n.presetsAITemp(newPresetTemp)).font(.system(size: 9))
                     }
                     .accentColor(.black)
                     
@@ -591,7 +595,7 @@ struct DashboardView: View {
                         newPresetName = ""
                         newPresetPrompt = ""
                     }) {
-                        Text("SALVA PRESET")
+                        Text(state.l10n.presetsSave)
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 16)
@@ -610,22 +614,22 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: - Tab 2: Impostazioni AI & Modelli
+    // MARK: - Tab 2: AI Settings & Models
 
     private var aiSettingsTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                // Sezione Configurazione Hotkey
+                // Hotkey configuration
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("TASTO DI ATTIVAZIONE (HOTKEY)")
+                    Text(state.l10n.settingsHotkeySection)
                         .font(.system(size: 10, weight: .black))
                         .foregroundColor(Color(white: 0.4))
                     
                     HStack(spacing: 12) {
                         Button(action: {
-                            NotificationCenter.default.post(name: NSNotification.Name("mywispr.startHotkeyRecording"), object: nil)
+                            NotificationCenter.default.post(name: .mywisprStartHotkeyRecording, object: nil)
                         }) {
-                            Text(state.isRecordingHotkey ? "PREMI UN TASTO..." : KeyboardManager.keyName(for: state.hotkeyKeyCode).uppercased())
+                            Text(state.isRecordingHotkey ? state.l10n.settingsPressAKey : state.l10n.keyName(for: state.hotkeyKeyCode).uppercased())
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundColor(state.isRecordingHotkey ? .red : .white)
                                 .padding(.horizontal, 16)
@@ -636,10 +640,10 @@ struct DashboardView: View {
                         .buttonStyle(.plain)
                         
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Dettatura classica: Tieni premuto per parlare, rilascia per incollare.")
+                            Text(state.l10n.settingsHoldToTalk)
                                 .font(.system(size: 9))
                                 .foregroundColor(Color(white: 0.5))
-                            Text("Ascolto Continuo: Premi due volte per registrare a mani libere. Clicca col mouse o premi nuovamente l'hotkey per interrompere.")
+                            Text(state.l10n.settingsLockToListen)
                                 .font(.system(size: 9, weight: .bold))
                                 .foregroundColor(Color(white: 0.4))
                         }
@@ -655,22 +659,22 @@ struct DashboardView: View {
                 .background(Color.white)
                 .border(Color(white: 0.9), width: 1)
                 
-                // Sezione Configurazione Modello
+                // Model configuration
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("MODELLO LOCALE OLLAMA")
+                    Text(state.l10n.settingsModelSection)
                         .font(.system(size: 10, weight: .black))
                         .foregroundColor(Color(white: 0.4))
                     
                     if state.availableOllamaModels.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("⚠️ Nessun modello rilevato su Ollama localmente.")
+                            Text(state.l10n.settingsNoModelDetected)
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundColor(.orange)
-                            Text("Verifica che Ollama sia avviato. Puoi scaricare un modello dal tab 'Monitor Ollama'.")
+                            Text(state.l10n.settingsNoModelHint)
                                 .font(.system(size: 9))
                                 .foregroundColor(Color(white: 0.5))
                             
-                            TextField("Inserisci nome modello a mano", text: $state.ollamaModelName)
+                            TextField(state.l10n.settingsManualModel, text: $state.ollamaModelName)
                                 .textFieldStyle(PlainTextFieldStyle())
                                 .padding(6)
                                 .border(Color.black, width: 1)
@@ -678,7 +682,7 @@ struct DashboardView: View {
                         }
                     } else {
                         HStack {
-                            Text("Modello attivo:")
+                            Text(state.l10n.settingsActiveModel)
                                 .font(.system(size: 10))
                                 .foregroundColor(Color(white: 0.45))
                             
@@ -693,13 +697,13 @@ struct DashboardView: View {
                         }
                     }
                     
-                    // Slider Temperatura
+                    // Temperature slider
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text("Temperatura AI: \(state.temperature, specifier: "%.1f")")
+                            Text(state.l10n.settingsTemperature(state.temperature))
                                 .font(.system(size: 10, weight: .bold))
                             Spacer()
-                            Text(state.temperature <= 0.2 ? "Correzione Letterale" : (state.temperature >= 0.7 ? "Creativo" : "Bilanciato"))
+                            Text(state.temperature <= 0.2 ? state.l10n.settingsTempLiteral : (state.temperature >= 0.7 ? state.l10n.settingsTempCreative : state.l10n.settingsTempBalanced))
                                 .font(.system(size: 8))
                                 .foregroundColor(.gray)
                         }
@@ -713,15 +717,15 @@ struct DashboardView: View {
                 .background(Color.white)
                 .border(Color(white: 0.9), width: 1)
                 
-                // Sezione Preset di Trascrizione Standard
+                // Built-in transcription presets
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("PRESET DI BASE AI")
+                    Text(state.l10n.settingsBasePresets)
                         .font(.system(size: 10, weight: .black))
                         .foregroundColor(Color(white: 0.4))
                     
-                    Picker("Preset standard attivo:", selection: $state.aiPreset) {
+                    Picker(state.l10n.settingsActivePreset, selection: $state.aiPreset) {
                         ForEach(AIPreset.allCases.filter { $0 != .custom }, id: \.self) { preset in
-                            Text(preset.displayName).tag(preset)
+                            Text(state.l10n.presetName(preset)).tag(preset)
                         }
                     }
                     .font(.system(size: 10))
@@ -730,11 +734,120 @@ struct DashboardView: View {
                 .background(Color.white)
                 .border(Color(white: 0.9), width: 1)
                 
-                // Badge dei permessi di sistema
+                // Language: one picker drives both the recognition locale and the UI.
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(state.l10n.languageSection)
+                        .font(.system(size: 10, weight: .black))
+                        .foregroundColor(Color(white: 0.4))
+
+                    HStack(spacing: 12) {
+                        Text(state.l10n.languageLabel)
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(white: 0.45))
+
+                        Picker("", selection: languageBinding) {
+                            ForEach(AppLanguage.allCases) { lang in
+                                Text("\(lang.flag)  \(lang.displayName)").tag(lang)
+                            }
+                        }
+                        .labelsHidden()
+                        .font(.system(size: 10))
+                        .frame(width: 160)
+                        // Changing the recogniser mid-session would tear down a live
+                        // audio tap, so the picker is locked while recording.
+                        .disabled(state.isRecording)
+
+                        Spacer()
+                    }
+
+                    Text(state.isRecording ? state.l10n.languageBusyWarning : state.l10n.languageHint)
+                        .font(.system(size: 9))
+                        .foregroundColor(state.isRecording ? .orange : Color(white: 0.5))
+
+                    if !SpeechManager.isSupported(state.dictationLanguage) {
+                        Text(state.l10n.languageUnsupported)
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.orange)
+                    }
+                }
+                .padding(12)
+                .background(Color.white)
+                .border(Color(white: 0.9), width: 1)
+
+                // Privacy: report what actually happens to the audio and the text,
+                // rather than a blanket "everything is local" claim.
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(state.l10n.privacySection)
+                        .font(.system(size: 10, weight: .black))
+                        .foregroundColor(Color(white: 0.4))
+
+                    HStack(spacing: 6) {
+                        Image(systemName: state.isOnDeviceRecognition ? "lock.fill" : "cloud.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(state.isOnDeviceRecognition ? .green : .orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(state.isOnDeviceRecognition
+                                 ? state.l10n.privacyOnDevice
+                                 : state.l10n.privacyServerBased)
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(state.isOnDeviceRecognition ? .green : .orange)
+                            if !state.isOnDeviceRecognition {
+                                Text(state.l10n.privacyServerHint)
+                                    .font(.system(size: 9))
+                                    .foregroundColor(Color(white: 0.5))
+                            }
+                        }
+                    }
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "cpu")
+                            .font(.system(size: 10))
+                            .foregroundColor(.green)
+                        Text(state.l10n.privacyLocalAI)
+                            .font(.system(size: 10))
+                            .foregroundColor(Color(white: 0.35))
+                    }
+
+                    Divider()
+
+                    Toggle(isOn: $state.verboseLogging) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(state.l10n.privacyVerboseToggle)
+                                .font(.system(size: 10, weight: .bold))
+                            Text(state.l10n.privacyVerboseHint)
+                                .font(.system(size: 9))
+                                .foregroundColor(Color(white: 0.5))
+                        }
+                    }
+                    .toggleStyle(.switch)
+
+                    HStack(spacing: 8) {
+                        Text(Logger.logURL.path)
+                            .font(.system(size: 8, design: .monospaced))
+                            .foregroundColor(Color(white: 0.55))
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                        Spacer()
+                        Button(action: { Logger.clear() }) {
+                            Text(state.l10n.privacyClearLog)
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundColor(Color(white: 0.35))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .border(Color(white: 0.8), width: 1)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(12)
+                .background(Color.white)
+                .border(Color(white: 0.9), width: 1)
+
+                // System permission badges
                 HStack(spacing: 12) {
-                    permissionBadge(label: "Microfono", granted: state.hasMicrophonePermission)
-                    permissionBadge(label: "Riconoscimento Vocale", granted: state.hasSpeechPermission)
-                    permissionBadge(label: "Accessibilità", granted: state.hasAccessibilityPermission)
+                    permissionBadge(label: state.l10n.permMicrophone, granted: state.hasMicrophonePermission)
+                    permissionBadge(label: state.l10n.permSpeech, granted: state.hasSpeechPermission)
+                    permissionBadge(label: state.l10n.permAccessibility, granted: state.hasAccessibilityPermission)
                     Spacer()
                 }
                 .padding(.horizontal, 4)
@@ -759,18 +872,18 @@ struct DashboardView: View {
         .border(Color(white: 0.9), width: 1)
     }
 
-    // MARK: - Tab 3: Glossario Tecnico
+    // MARK: - Tab 3: Technical Glossary
 
     private var glossaryTab: some View {
         VStack(spacing: 0) {
-            // Form Aggiunta Elemento
+            // Add-entry form
             VStack(alignment: .leading, spacing: 8) {
-                Text("AGGIUNGI REGOLA DI SOSTITUZIONE")
+                Text(state.l10n.glossaryAddRule)
                     .font(.system(size: 10, weight: .black))
                     .foregroundColor(Color(white: 0.4))
                 
                 HStack(spacing: 8) {
-                    TextField("Voce grezza (es. svift)", text: $newWord)
+                    TextField(state.l10n.glossaryRawPlaceholder, text: $newWord)
                         .textFieldStyle(PlainTextFieldStyle())
                         .padding(6)
                         .background(Color.white)
@@ -781,7 +894,7 @@ struct DashboardView: View {
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(.gray)
                     
-                    TextField("Sostituzione corretta (es. Swift)", text: $newReplacement)
+                    TextField(state.l10n.glossaryReplacementPlaceholder, text: $newReplacement)
                         .textFieldStyle(PlainTextFieldStyle())
                         .padding(6)
                         .background(Color.white)
@@ -793,7 +906,7 @@ struct DashboardView: View {
                         newWord = ""
                         newReplacement = ""
                     }) {
-                        Text("AGGIUNGI")
+                        Text(state.l10n.glossaryAdd)
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 14)
@@ -810,19 +923,19 @@ struct DashboardView: View {
             .padding(.horizontal, 20)
             .padding(.top, 12)
             
-            // Tabella delle regole salvate
+            // Table of saved rules
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("REGOLE ATTIVE (\(state.glossary.count))")
+                    Text(state.l10n.glossaryActiveRules(state.glossary.count))
                         .font(.system(size: 10, weight: .black))
                         .foregroundColor(Color(white: 0.45))
                     
                     Spacer()
                     
-                    // Ricerca regole
+                    // Rule search
                     HStack {
                         Image(systemName: "magnifyingglass").font(.system(size: 9)).foregroundColor(.gray)
-                        TextField("Cerca nel glossario...", text: $searchGlossaryQuery)
+                        TextField(state.l10n.glossarySearchPlaceholder, text: $searchGlossaryQuery)
                             .textFieldStyle(PlainTextFieldStyle())
                             .font(.system(size: 9))
                             .frame(width: 140)
@@ -834,7 +947,7 @@ struct DashboardView: View {
                 
                 if filteredGlossary.isEmpty {
                     VStack {
-                        Text("Nessuna regola nel glossario.")
+                        Text(state.l10n.glossaryEmpty)
                             .font(.system(size: 10))
                             .foregroundColor(.gray)
                     }
@@ -901,23 +1014,23 @@ struct DashboardView: View {
     private var analyticsTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                // KPI Summary Cards
+                // KPI summary cards
                 HStack(spacing: 12) {
-                    kpiCard(title: "PAROLE DETTATE", value: "\(state.totalWords)", subtitle: "Produttività vocale")
-                    kpiCard(title: "TEMPO RISPARMIATO", value: formatTime(state.timeSavedSeconds), subtitle: "Velocità media stimata")
-                    kpiCard(title: "EFFICACIA", value: "+375%", subtitle: "Rispetto a tastiera manuale")
+                    kpiCard(title: state.l10n.analyticsWordsDictated, value: "\(state.totalWords)", subtitle: state.l10n.analyticsWordsSubtitle)
+                    kpiCard(title: state.l10n.analyticsTimeSaved, value: formatTime(state.timeSavedSeconds), subtitle: state.l10n.analyticsTimeSubtitle)
+                    kpiCard(title: state.l10n.analyticsEffectiveness, value: "+375%", subtitle: state.l10n.analyticsEffectivenessSubtitle)
                 }
                 .padding(.top, 10)
                 
-                // Grafico Dettatura Giornaliera (SwiftUI Charts)
+                // Daily dictation chart (SwiftUI Charts)
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("PAROLE DETTATE NEGLI ULTIMI 7 GIORNI")
+                    Text(state.l10n.analyticsChartTitle)
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(Color(white: 0.45))
                     
                     if dailyChartData.isEmpty {
                         VStack {
-                            Text("Dati insufficienti per generare il grafico. Inizia a dettare testo!")
+                            Text(state.l10n.analyticsChartEmpty)
                                 .font(.system(size: 10))
                                 .foregroundColor(.gray)
                         }
@@ -929,8 +1042,8 @@ struct DashboardView: View {
                         Chart {
                             ForEach(dailyChartData) { data in
                                 BarMark(
-                                    x: .value("Giorno", data.dayLabel),
-                                    y: .value("Parole", data.words)
+                                    x: .value(state.l10n.analyticsAxisDay, data.dayLabel),
+                                    y: .value(state.l10n.analyticsAxisWords, data.words)
                                 )
                                 .foregroundStyle(Color.black)
                                 .cornerRadius(3)
@@ -943,18 +1056,18 @@ struct DashboardView: View {
                     }
                 }
                 
-                // Statistiche globali di utilizzo
+                // Global usage statistics
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("STATISTICHE DETTAGLIATE")
+                    Text(state.l10n.analyticsDetailed)
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(Color(white: 0.45))
                     
                     VStack(spacing: 0) {
-                        statRow(label: "Trascrizioni totali effettuate", value: "\(state.transcriptionHistory.count)")
+                        statRow(label: state.l10n.analyticsTotalTranscriptions, value: "\(state.transcriptionHistory.count)")
                         Divider().background(Color(white: 0.95))
-                        statRow(label: "Lunghezza media trascrizione", value: String(format: "%.1f parole", Double(state.totalWords) / max(1.0, Double(state.transcriptionHistory.count))))
+                        statRow(label: state.l10n.analyticsAverageLength, value: state.l10n.analyticsWordsValue(Double(state.totalWords) / max(1.0, Double(state.transcriptionHistory.count))))
                         Divider().background(Color(white: 0.95))
-                        statRow(label: "Modello LLM locale preferito", value: state.ollamaModelName)
+                        statRow(label: state.l10n.analyticsPreferredModel, value: state.ollamaModelName)
                     }
                     .background(Color.white)
                     .border(Color(white: 0.9), width: 1)
@@ -998,15 +1111,19 @@ struct DashboardView: View {
         .padding(.vertical, 10)
     }
 
-    // Struttura dati per grafico SwiftUI Charts
+    // Data point backing the SwiftUI Charts view
     struct DailyStat: Identifiable {
         let id = UUID()
         let date: Date
         let words: Int
-        
+        /// Locale of the current UI language, so en-US reads MM/dd and it-IT dd/MM.
+        let locale: Locale
+
         var dayLabel: String {
             let formatter = DateFormatter()
-            formatter.dateFormat = "dd/MM"
+            formatter.locale = locale
+            // Locale-appropriate day+month ordering rather than a fixed pattern.
+            formatter.setLocalizedDateFormatFromTemplate("ddMM")
             return formatter.string(from: date)
         }
     }
@@ -1015,7 +1132,7 @@ struct DashboardView: View {
         var groups: [String: (Date, Int)] = [:]
         let calendar = Calendar.current
         
-        // Inizializza gli ultimi 7 giorni a 0
+        // Seed the last 7 days with zero
         for i in 0..<7 {
             if let date = calendar.date(byAdding: .day, value: -i, to: Date()) {
                 let key = calendar.startOfDay(for: date).description
@@ -1023,7 +1140,7 @@ struct DashboardView: View {
             }
         }
         
-        // Raggruppa i dati storici
+        // Bucket the history into those days
         for record in state.transcriptionHistory {
             let key = calendar.startOfDay(for: record.timestamp).description
             if let val = groups[key] {
@@ -1032,7 +1149,7 @@ struct DashboardView: View {
         }
         
         return groups.values
-            .map { DailyStat(date: $0.0, words: $0.1) }
+            .map { DailyStat(date: $0.0, words: $0.1, locale: state.uiLanguage.formattingLocale) }
             .sorted(by: { $0.date < $1.date })
     }
 
@@ -1041,31 +1158,34 @@ struct DashboardView: View {
     private var ollamaTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                // Monitor delle RAM/VRAM e dei Modelli in esecuzione
+                // Models resident in RAM/VRAM right now (/api/ps), which is a
+                // strict subset of the installed ones (/api/tags).
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("MODELLI ATTUALMENTE IN ESECUZIONE NELLA RAM/VRAM")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(Color(white: 0.45))
-                    
+                    HStack {
+                        Text(state.l10n.monitorRunningModels)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(Color(white: 0.45))
+                        Spacer()
+                        Button(action: {
+                            NotificationCenter.default.post(name: .mywisprRefreshOllama, object: nil)
+                        }) {
+                            Text(state.l10n.monitorRefresh)
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundColor(Color(white: 0.35))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .border(Color(white: 0.8), width: 1)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
                     if !state.isOllamaConnected {
-                        Text("Connessione a Ollama non stabilita.")
-                            .font(.system(size: 10))
-                            .foregroundColor(.red)
-                            .padding(14)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .background(Color.white)
-                            .border(Color(white: 0.9), width: 1)
-                    } else if state.availableOllamaModels.isEmpty {
-                        Text("Nessun modello caricato in memoria in questo istante.")
-                            .font(.system(size: 10))
-                            .foregroundColor(.gray)
-                            .padding(14)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .background(Color.white)
-                            .border(Color(white: 0.9), width: 1)
+                        monitorPlaceholder(state.l10n.monitorNotConnected, color: .red)
+                    } else if state.loadedOllamaModels.isEmpty {
+                        monitorPlaceholder(state.l10n.monitorNoneLoaded, color: .gray)
                     } else {
                         VStack(spacing: 0) {
-                            ForEach(state.availableOllamaModels, id: \.self) { name in
+                            ForEach(state.loadedOllamaModels, id: \.self) { name in
                                 HStack {
                                     Image(systemName: "cpu.fill")
                                         .font(.system(size: 12))
@@ -1074,7 +1194,7 @@ struct DashboardView: View {
                                         .font(.system(size: 11, weight: .bold))
                                         .foregroundColor(.black)
                                     Spacer()
-                                    Text("Attivo (5m timeout)")
+                                    Text(state.l10n.monitorInMemory)
                                         .font(.system(size: 9))
                                         .foregroundColor(.gray)
                                 }
@@ -1086,19 +1206,56 @@ struct DashboardView: View {
                         .border(Color(white: 0.9), width: 1)
                     }
                 }
-                
-                // Downloader Modelli (Pull API)
+
+                // Everything installed on disk, whether or not it is loaded.
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("SCARICA NUOVO MODELLO DA OLLAMA REGISTRY")
+                    Text(state.l10n.monitorInstalled)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(Color(white: 0.45))
+
+                    if state.availableOllamaModels.isEmpty {
+                        monitorPlaceholder(state.l10n.monitorNoneInstalled, color: .gray)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(state.availableOllamaModels, id: \.self) { name in
+                                HStack {
+                                    Image(systemName: "internaldrive")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(Color(white: 0.45))
+                                    Text(name)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.black)
+                                    Spacer()
+                                    if name == state.ollamaModelName {
+                                        Text(state.l10n.monitorInUse)
+                                            .font(.system(size: 8, weight: .bold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.black)
+                                    }
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                            }
+                        }
+                        .background(Color.white)
+                        .border(Color(white: 0.9), width: 1)
+                    }
+                }
+                
+                // Model downloader (pull API)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(state.l10n.monitorDownloadSection)
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(Color(white: 0.45))
                     
-                    Text("Inserisci il nome esatto del modello da scaricare (es: qwen2.5:7b, qwen2.5:3b, llama3).")
+                    Text(state.l10n.monitorDownloadHint)
                         .font(.system(size: 9))
                         .foregroundColor(.gray)
                     
                     HStack(spacing: 12) {
-                        TextField("Esempio: qwen2.5:7b", text: $pullModelName)
+                        TextField(state.l10n.monitorDownloadPlaceholder, text: $pullModelName)
                             .textFieldStyle(PlainTextFieldStyle())
                             .padding(6)
                             .background(Color.white)
@@ -1113,7 +1270,7 @@ struct DashboardView: View {
                                 if isPulling {
                                     ProgressView().scaleEffect(0.5).frame(width: 10, height: 10)
                                 }
-                                Text(isPulling ? "SCARICAMENTO..." : "SCARICA MODELLO")
+                                Text(isPulling ? state.l10n.monitorDownloading : state.l10n.monitorDownload)
                                     .font(.system(size: 9, weight: .bold))
                             }
                             .foregroundColor(.white)
@@ -1142,55 +1299,46 @@ struct DashboardView: View {
         }
     }
 
+    /// Routes the picker through `setLanguage` so the glossary swap, persistence
+    /// and `SpeechManager` reconfiguration all happen together.
+    private var languageBinding: Binding<AppLanguage> {
+        Binding(
+            get: { state.dictationLanguage },
+            set: { state.setLanguage($0) }
+        )
+    }
+
+    /// Shared empty/error state box used by the monitor lists.
+    private func monitorPlaceholder(_ message: String, color: Color) -> some View {
+        Text(message)
+            .font(.system(size: 10))
+            .foregroundColor(color)
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .background(Color.white)
+            .border(Color(white: 0.9), width: 1)
+    }
+
     private func pullModelFromRegistry() {
         guard state.isOllamaConnected else {
-            pullStatusMessage = "Impossibile scaricare: Ollama offline."
+            pullStatusMessage = state.l10n.ollamaOfflineCannotPull
             return
         }
         let model = pullModelName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty else { return }
-        
+
         isPulling = true
-        pullStatusMessage = "Inizio download per \(model)... potrebbe richiedere tempo."
-        
-        guard let url = URL(string: "http://127.0.0.1:11434/api/pull") else {
+        pullStatusMessage = state.l10n.ollamaPullStarted(model)
+
+        ollama.pullModel(model, l10n: state.l10n) { success, message in
             isPulling = false
-            pullStatusMessage = "URL non valido."
-            return
-        }
-        
-        let body = ["name": model, "stream": false] as [String : Any]
-        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
-            isPulling = false
-            pullStatusMessage = "Errore di serializzazione."
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.httpBody = bodyData
-        request.timeoutInterval = 600 // Alto timeout per il download
-        
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            DispatchQueue.main.async {
-                self.isPulling = false
-                if let error = error {
-                    self.pullStatusMessage = "Errore durante il download: \(error.localizedDescription)"
-                    return
-                }
-                
-                guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                    self.pullStatusMessage = "Errore: Modello non trovato o server in errore."
-                    return
-                }
-                
-                self.pullStatusMessage = "Modello \(model) scaricato con successo!"
-                self.pullModelName = ""
-                
-                // Aggiorna la lista dei modelli disponibili
-                NotificationCenter.default.post(name: NSNotification.Name("mywispr.refreshOllama"), object: nil)
+            pullStatusMessage = message
+            if success {
+                pullModelName = ""
+                // Refresh the installed/loaded model lists
+                NotificationCenter.default.post(name: .mywisprRefreshOllama, object: nil)
             }
-        }.resume()
+        }
     }
 
     // MARK: - Onboarding View
@@ -1202,11 +1350,11 @@ struct DashboardView: View {
                     .font(.system(size: 42))
                     .foregroundColor(.black)
                 
-                Text("Benvenuto in MyWispr")
+                Text(state.l10n.onboardingWelcome)
                     .font(.system(size: 20, weight: .bold))
                     .foregroundColor(.black)
                 
-                Text("Per iniziare ad utilizzare la dettatura vocale locale intelligente, configura i permessi richiesti dal sistema operativo.")
+                Text(state.l10n.onboardingIntro)
                     .font(.system(size: 11))
                     .foregroundColor(Color(white: 0.45))
                     .multilineTextAlignment(.center)
@@ -1215,11 +1363,11 @@ struct DashboardView: View {
             .padding(.top, 30)
             
             VStack(spacing: 12) {
-                // Step 1: Microfono
+                // Step 1: Microphone
                 onboardingStep(
                     icon: "mic.fill",
-                    title: "Accesso al Microfono",
-                    description: "Necessario per catturare la tua voce durante la dettatura.",
+                    title: state.l10n.onboardingMicTitle,
+                    description: state.l10n.onboardingMicDesc,
                     granted: state.hasMicrophonePermission,
                     action: {
                         let status = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -1230,7 +1378,7 @@ struct DashboardView: View {
                                 }
                             }
                         } else {
-                            // Già richiesto: apri le impostazioni
+                            // Already requested once: send the user straight to System Settings
                             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
                                 NSWorkspace.shared.open(url)
                             }
@@ -1238,11 +1386,11 @@ struct DashboardView: View {
                     }
                 )
                 
-                // Step 2: Riconoscimento vocale
+                // Step 2: Speech recognition
                 onboardingStep(
                     icon: "brain.head.profile",
-                    title: "Riconoscimento Vocale",
-                    description: "Abilita macOS a trascrivere il parlato in testo.",
+                    title: state.l10n.onboardingSpeechTitle,
+                    description: state.l10n.onboardingSpeechDesc,
                     granted: state.hasSpeechPermission,
                     action: {
                         let status = SFSpeechRecognizer.authorizationStatus()
@@ -1253,7 +1401,7 @@ struct DashboardView: View {
                                 }
                             }
                         } else {
-                            // Già richiesto: apri le impostazioni
+                            // Already requested once: send the user straight to System Settings
                             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition") {
                                 NSWorkspace.shared.open(url)
                             }
@@ -1261,11 +1409,12 @@ struct DashboardView: View {
                     }
                 )
                 
-                // Step 3: Accessibilità — sempre tramite Impostazioni di Sistema, mai popup di sistema
+                // Step 3: Accessibility — always via System Settings, never the system popup
+                //          (the popup can loop forever once TCC has cached a decision)
                 onboardingStep(
                     icon: "keyboard.fill",
-                    title: "Accesso all'Accessibilità",
-                    description: "Apri le Impostazioni di Sistema per abilitare MyWispr nella sezione Accessibilità.",
+                    title: state.l10n.onboardingAxTitle,
+                    description: state.l10n.onboardingAxDesc,
                     granted: state.hasAccessibilityPermission,
                     action: {
                         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
@@ -1280,9 +1429,9 @@ struct DashboardView: View {
             
             if state.hasMicrophonePermission && state.hasSpeechPermission && state.hasAccessibilityPermission {
                 Button(action: {
-                    // Cliccando sul pulsante, l'onboarding sparisce perché le proprietà di stato si aggiornano
+                    // The onboarding disappears on its own once the polled permission state flips
                 }) {
-                    Text("PROCEDI ALLA DASHBOARD")
+                    Text(state.l10n.onboardingProceed)
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 24)
@@ -1294,18 +1443,18 @@ struct DashboardView: View {
                 .padding(.bottom, 30)
             } else {
                 VStack(spacing: 8) {
-                    Text("⚠️ Abilita tutte le autorizzazioni sopra indicate per procedere.")
+                    Text(state.l10n.onboardingEnableAll)
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(.orange)
                     
-                    Text("Nota: Su macOS, l'abilitazione dell'Accessibilità richiede a volte il riavvio manuale dell'app per avere effetto.")
+                    Text(state.l10n.onboardingRestartNote)
                         .font(.system(size: 8))
                         .foregroundColor(.gray)
                     
                     Button(action: {
                         relaunchApp()
                     }) {
-                        Text("VERIFICA E RIAVVIA APP")
+                        Text(state.l10n.onboardingRelaunch)
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.black)
                             .padding(.horizontal, 12)
@@ -1348,13 +1497,13 @@ struct DashboardView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
                         .font(.system(size: 11))
-                    Text("CONCESSO")
+                    Text(state.l10n.onboardingGranted)
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(.green)
                 }
             } else {
                 Button(action: action) {
-                    Text("CONCEDI")
+                    Text(state.l10n.onboardingGrant)
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 10)
@@ -1386,5 +1535,14 @@ struct DashboardView: View {
                 NSApp.terminate(nil)
             }
         }
+    }
+}
+
+// MARK: - Bundle Version
+
+extension Bundle {
+    /// Short version string from Info.plist, so the UI and the bundle never disagree.
+    var appVersion: String {
+        (infoDictionary?["CFBundleShortVersionString"] as? String) ?? "—"
     }
 }

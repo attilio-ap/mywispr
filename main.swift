@@ -8,7 +8,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Core Objects (non-UI)
     private let appState = AppState()
     private var keyboardManager: KeyboardManager!
-    private let speechManager = SpeechManager()
+    private var speechManager: SpeechManager!
     private var ollamaManager: OllamaManager!
 
     // MARK: - Windows
@@ -16,7 +16,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlayWindow: OverlayWindow!
     private var dashboardWindow: NSWindow!
 
-    // MARK: - Nuovi Stati Interazione (Click-to-Toggle / Hold-to-Talk)
+    // MARK: - Interaction State (hold-to-talk / lock-to-listen)
+
+    /// Maximum gap between two presses to count as a double-press.
+    private static let doublePressWindow: TimeInterval = 0.35
+
+    /// How long to wait after a key release before committing to "this was a single press".
+    /// Slightly shorter than `doublePressWindow` so the two cannot race.
+    private static let singlePressConfirmDelay: TimeInterval = 0.32
+
+    /// A press shorter than this with nothing transcribed is treated as accidental.
+    private static let accidentalTapThreshold: TimeInterval = 0.25
+
     private var lastKeyDownTime: Date?
     private var keyUpTimer: Timer?
     private var isLockedListening = false
@@ -29,18 +40,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupMainMenu()
         setupMenuBar()
 
-        // Inizializza i manager con i valori dall'AppState
+        // Initialise the managers from the persisted state
         keyboardManager = KeyboardManager(keyCode: appState.hotkeyKeyCode)
-        ollamaManager = OllamaManager(modelName: appState.ollamaModelName)
+        ollamaManager = OllamaManager()
+        speechManager = SpeechManager(language: appState.dictationLanguage)
+        appState.isOnDeviceRecognition = speechManager.isOnDeviceRecognition
 
-        // Prepara finestre
         setupOverlayWindow()
         setupDashboardWindow()
-
-        // Collega tutti i callback
         setupCallbacks()
+        setupNotificationObservers()
 
-        // Richiedi permessi e mostra dashboard se mancanti
+        // Request permissions, and open the dashboard onboarding if any are missing
         speechManager.requestPermissions { [weak self] speech, mic in
             guard let self else { return }
             self.appState.hasSpeechPermission = speech
@@ -51,42 +62,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Avvia il keyboard manager
         keyboardManager.start()
-
-        // Verifica stato Ollama all'avvio
         refreshOllamaStatus()
 
-        // Osserva richiesta di registrazione hotkey dalla Dashboard
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleStartHotkeyRecording),
-            name: NSNotification.Name("mywispr.startHotkeyRecording"),
-            object: nil
-        )
-
-        // Osserva richiesta di toggle della Dashboard
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleToggleDashboard),
-            name: NSNotification.Name("mywispr.toggleDashboard"),
-            object: nil
-        )
-
-        // Osserva richiesta di refresh di Ollama dalla Dashboard
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleRefreshOllamaNotification),
-            name: NSNotification.Name("mywispr.refreshOllama"),
-            object: nil
-        )
-
-        // Mostra la notch in sovrimpressione permanente
+        // Show the persistent overlay notch
         overlayWindow.showCentered()
-        
+
         setupMouseMonitors()
-        
-        Logger.log("MyWispr avviato. AXIsProcessTrusted: \(AXIsProcessTrusted())")
+
+        Logger.log("MyWispr launched. AXIsProcessTrusted: \(AXIsProcessTrusted())")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -104,22 +88,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupMainMenu() {
         let mainMenu = NSMenu()
 
-        // App menu (richiesto da macOS per Cmd+Q e altre shortcut)
+        // App menu (macOS requires one for Cmd+Q and friends)
         let appItem = NSMenuItem()
         let appMenu = NSMenu(title: "MyWispr")
-        let quitItem = NSMenuItem(title: "Esci da MyWispr", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: appState.l10n.menuQuitApp, action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         appMenu.addItem(quitItem)
         appItem.submenu = appMenu
         mainMenu.addItem(appItem)
 
-        // Edit menu (abilita Cmd+C/V/X/A nei text field della Dashboard)
+        // Edit menu (enables Cmd+C/V/X/A inside the dashboard text fields)
         let editItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
-        editMenu.addItem(NSMenuItem(title: "Taglia",          action: #selector(NSText.cut(_:)),       keyEquivalent: "x"))
-        editMenu.addItem(NSMenuItem(title: "Copia",           action: #selector(NSText.copy(_:)),      keyEquivalent: "c"))
-        editMenu.addItem(NSMenuItem(title: "Incolla",         action: #selector(NSText.paste(_:)),     keyEquivalent: "v"))
-        editMenu.addItem(NSMenuItem(title: "Seleziona Tutto", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+        editMenu.addItem(NSMenuItem(title: appState.l10n.menuCut,       action: #selector(NSText.cut(_:)),       keyEquivalent: "x"))
+        editMenu.addItem(NSMenuItem(title: appState.l10n.menuCopy,      action: #selector(NSText.copy(_:)),      keyEquivalent: "c"))
+        editMenu.addItem(NSMenuItem(title: appState.l10n.menuPaste,     action: #selector(NSText.paste(_:)),     keyEquivalent: "v"))
+        editMenu.addItem(NSMenuItem(title: appState.l10n.menuSelectAll, action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
 
@@ -127,40 +111,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupMenuBar() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        // Reuse the existing item when rebuilding after a language change,
+        // otherwise a second icon would appear in the menu bar.
+        if statusItem == nil {
+            statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        }
         if let button = statusItem.button {
             button.image = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: "MyWispr")
         }
         let menu = NSMenu()
-        
-        let openItem = NSMenuItem(title: "Apri Dashboard", action: #selector(showDashboard), keyEquivalent: "d")
+
+        let openItem = NSMenuItem(title: appState.l10n.menuOpenDashboard, action: #selector(showDashboard), keyEquivalent: "d")
         openItem.target = self
         menu.addItem(openItem)
-        
+
         menu.addItem(NSMenuItem.separator())
-        
-        let quitItem = NSMenuItem(title: "Esci", action: #selector(quitApp), keyEquivalent: "q")
+
+        let quitItem = NSMenuItem(title: appState.l10n.menuQuit, action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
-        
+
         statusItem.menu = menu
     }
 
     private func setupOverlayWindow() {
         overlayWindow = OverlayWindow(appState: appState)
         let overlayView = OverlayView().environmentObject(appState)
-        
+
         let hostingView = PassThroughHostingView(rootView: overlayView)
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = NSColor.clear.cgColor
         hostingView.overlayWindow = overlayWindow
-        
+
         overlayWindow.contentView = hostingView
     }
 
     private func setupDashboardWindow() {
         dashboardWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 540, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 820, height: 560),
             styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -172,64 +160,99 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         dashboardWindow.center()
     }
 
-    private func setupCallbacks() {
-        // ---------------------------------------------------------------
-        // LOGICA DOPPIO CLICK (Double-Press to Lock)
-        //
-        // Stato A - HOLD-TO-TALK:
-        //   Premi e tieni → avvia registrazione immediata
-        //   Rilasci → ferma registrazione e processa
-        //
-        // Stato B - LOCK-TO-LISTEN (mani libere):
-        //   Due pressioni rapide (< 0.35s) → entra in modalità ascolto
-        //   continuo. La seconda pressione NON avvia una nuova registrazione
-        //   (quella già attiva viene mantenuta).
-        //   Per uscire: premi di nuovo l'hotkey, O click sinistro del mouse.
-        // ---------------------------------------------------------------
+    private func setupNotificationObservers() {
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(handleStartHotkeyRecording),
+                           name: .mywisprStartHotkeyRecording, object: nil)
+        center.addObserver(self, selector: #selector(handleToggleDashboard),
+                           name: .mywisprToggleDashboard, object: nil)
+        center.addObserver(self, selector: #selector(handleRefreshOllamaNotification),
+                           name: .mywisprRefreshOllama, object: nil)
+    }
 
+    // MARK: - Callback Wiring
+
+    private func setupCallbacks() {
+        setupHotkeyCallbacks()
+        setupSpeechCallbacks()
+        setupOverlayResizing()
+        setupLanguageObserver()
+    }
+
+    /// Reacts to a language change: reconfigure the recogniser and rebuild the
+    /// AppKit menus, which are plain strings and do not update themselves.
+    private func setupLanguageObserver() {
+        appState.$dictationLanguage
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] newLanguage in
+                guard let self else { return }
+                // `reconfigure` cancels any live session before switching.
+                self.speechManager.reconfigure(for: newLanguage)
+                // On-device availability is per-locale, so re-publish it.
+                self.appState.isOnDeviceRecognition = self.speechManager.isOnDeviceRecognition
+                self.resetToIdle()
+            }
+            .store(in: &cancellables)
+
+        appState.$uiLanguage
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.setupMainMenu()
+                self?.setupMenuBar()
+            }
+            .store(in: &cancellables)
+    }
+
+    // ---------------------------------------------------------------
+    // Two interaction modes share one hotkey:
+    //
+    // A — HOLD-TO-TALK:
+    //   Press and hold  → start recording immediately
+    //   Release         → stop and process
+    //
+    // B — LOCK-TO-LISTEN (hands free):
+    //   Two quick presses → stay listening continuously. The second press does
+    //   NOT start a second session; the one already running is kept.
+    //   To exit: press the hotkey again, or left-click anywhere.
+    // ---------------------------------------------------------------
+    private func setupHotkeyCallbacks() {
         keyboardManager.onKeyDown = { [weak self] in
             guard let self else { return }
             guard self.appState.hasSpeechPermission && self.appState.hasMicrophonePermission else {
-                Logger.log("onKeyDown ignorato: permessi mancanti.")
+                Logger.log("onKeyDown ignored: permissions missing.")
                 self.showDashboard()
                 return
             }
 
-            // ── Se siamo già in Lock-to-Listen: questo keyDown esce dalla modalità ──
+            // Already locked? This press exits lock-to-listen.
             if self.isLockedListening {
-                Logger.log("Hotkey GIU mentre in ascolto bloccato → uscita da Lock.")
-                self.isLockedListening = false
-                self.appState.isRecording = false
-                self.speechManager.stopRecording()
+                Logger.log("Hotkey DOWN while locked → leaving lock-to-listen.")
+                self.stopLockedRecording()
                 return
             }
 
-            // ── Rilevamento doppio click ──
             let now = Date()
-            let timeSinceLast = self.lastKeyDownTime.map { now.timeIntervalSince($0) } ?? Double.infinity
+            let timeSinceLast = self.lastKeyDownTime.map { now.timeIntervalSince($0) } ?? .infinity
             self.lastKeyDownTime = now
 
-            if timeSinceLast < 0.35 {
-                // ── DOPPIO CLICK: entra in Lock-to-Listen ──
-                // Annulla il keyUpTimer del primo press così non stoppiamo la registrazione
+            if timeSinceLast < Self.doublePressWindow {
+                // DOUBLE PRESS → enter lock-to-listen.
+                // Cancel the first press's key-up timer so the running session is not stopped.
                 self.keyUpTimer?.invalidate()
                 self.keyUpTimer = nil
-                Logger.log("DOPPIO CLICK rilevato (\(String(format: "%.2f", timeSinceLast))s) → Lock-to-Listen attivo.")
+                Logger.log("Double press detected (\(String(format: "%.2f", timeSinceLast))s) → lock-to-listen active.")
                 self.isLockedListening = true
-                // La registrazione avviata dal primo keyDown continua normalmente.
-                // Non avviamo una seconda sessione.
+                // The session started by the first press simply keeps running.
             } else {
-                // ── PRIMO CLICK: Hold-to-Talk classico ──
-                // Assicuriamoci che non ci sia una sessione attiva rimasta sporca
+                // FIRST PRESS → classic hold-to-talk.
                 if self.appState.isRecording {
-                    Logger.log("WARN: isRecording era true all'avvio di un nuovo hold-to-talk. Cancello la sessione precedente.")
+                    Logger.log("WARN: isRecording was true when starting a new hold-to-talk. Discarding the stale session.")
                     self.speechManager.cancelRecording()
-                    self.appState.isRecording = false
                     self.appState.isProcessing = false
-                    self.appState.partialTranscript = ""
-                    self.appState.audioLevel = 0
                 }
-                Logger.log("Hotkey GIU (hold-to-talk).")
+                Logger.log("Hotkey DOWN (hold-to-talk).")
                 self.appState.partialTranscript = ""
                 self.appState.audioLevel = 0
                 self.appState.isRecording = true
@@ -241,79 +264,87 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         keyboardManager.onKeyUp = { [weak self] in
             guard let self else { return }
 
-            // Se siamo in Lock-to-Listen, il keyUp non fa nulla
+            // In lock-to-listen the key release means nothing.
             if self.isLockedListening {
-                Logger.log("Hotkey SU ignorato (Lock-to-Listen attivo).")
+                Logger.log("Hotkey UP ignored (lock-to-listen active).")
                 return
             }
 
-            // Salva il momento del rilascio per misurare la durata della pressione
             let keyUpTime = Date()
 
-            // Finestra doppio click: aspetta 0.32s prima di confermare il singolo press.
-            // Se arriva un secondo keyDown entro 0.32s, il timer viene invalidato
-            // e non facciamo lo stop.
+            // Wait out the double-press window before committing to a single press.
+            // A second key-down within the window invalidates this timer.
             self.keyUpTimer?.invalidate()
-            self.keyUpTimer = Timer.scheduledTimer(withTimeInterval: 0.32, repeats: false) { [weak self] _ in
+            self.keyUpTimer = Timer.scheduledTimer(withTimeInterval: Self.singlePressConfirmDelay, repeats: false) { [weak self] _ in
                 guard let self, !self.isLockedListening else { return }
 
-                // Se nel frattempo non stiamo più registrando (es. onSilence già scattato),
-                // non fare nulla per evitare doppia finalizzazione.
+                // Already finalised elsewhere (e.g. onSilence fired) — avoid a double finalise.
                 guard self.appState.isRecording else {
-                    Logger.log("keyUpTimer: non in registrazione, ignoro.")
+                    Logger.log("keyUpTimer: not recording, ignoring.")
                     return
                 }
 
-                // Misura quanto a lungo il tasto è stato tenuto premuto
                 let holdDuration = self.lastKeyDownTime.map { keyUpTime.timeIntervalSince($0) } ?? 1.0
 
-                // Click brevissimo (<0.25s) senza trascrizione parziale → accidentale
-                if holdDuration < 0.25 && self.appState.partialTranscript.isEmpty {
-                    Logger.log("Click accidentale (hold: \(String(format: "%.2f", holdDuration))s) → annullo.")
+                if holdDuration < Self.accidentalTapThreshold && self.appState.partialTranscript.isEmpty {
+                    // Very short press with nothing said → the user brushed the key.
+                    Logger.log("Accidental tap (held \(String(format: "%.2f", holdDuration))s) → cancelling.")
                     self.speechManager.cancelRecording()
-                    self.appState.isRecording = false
-                    self.appState.partialTranscript = ""
-                    self.appState.audioLevel = 0
-                    self.appState.overlayMode = .idle
+                    self.resetToIdle()
                 } else {
-                    Logger.log("Hold confermato (\(String(format: "%.2f", holdDuration))s) → stop registrazione.")
+                    Logger.log("Hold confirmed (\(String(format: "%.2f", holdDuration))s) → stopping recording.")
                     self.speechManager.stopRecording()
-                    // Non cambiamo overlayMode qui: lo farà onFinalTranscript/onSilence
+                    // Leave overlayMode alone: onFinalTranscript / onSilence will set it.
                 }
             }
         }
 
-        // Trascrizione parziale in tempo reale
-        speechManager.onPartialTranscript = { [weak self] partialText in
+        keyboardManager.onHotkeyRecorded = { [weak self] keyCode in
             guard let self else { return }
-            self.appState.partialTranscript = partialText
+            Logger.log("New hotkey recorded: \(keyCode)")
+            self.appState.hotkeyKeyCode = keyCode
+            self.appState.isRecordingHotkey = false
+            self.appState.hotkeyRejectionMessage = nil
+            self.appState.persistHotkey()
+            self.keyboardManager.updateTargetKey(keyCode)
         }
 
-        // Silenzio: nessuna parola riconosciuta nella sessione (o sessione troppo corta)
-        // NOTA: con il nuovo SpeechManager, onSilence viene chiamato solo quando
-        // stopRequested=true e la trascrizione è vuota. Non scatta più durante hold-to-talk.
+        keyboardManager.onHotkeyRejected = { [weak self] in
+            guard let self else { return }
+            self.appState.hotkeyRejectionMessage = self.appState.l10n.hotkeyFnRejected
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                self?.appState.hotkeyRejectionMessage = nil
+            }
+        }
+    }
+
+    private func setupSpeechCallbacks() {
+        speechManager.onPartialTranscript = { [weak self] partialText in
+            self?.appState.partialTranscript = partialText
+        }
+
+        // No speech recognised in the session.
+        // SpeechManager only raises this once a stop was requested and the transcript
+        // is empty, so it no longer fires mid hold-to-talk.
         speechManager.onSilence = { [weak self] in
             guard let self else { return }
 
             if self.isLockedListening {
-                // In lock-to-listen il riavvio della sessione avviene internamente
-                // a SpeechManager. Questo callback ora non dovrebbe più arrivare in quel contesto,
-                // ma lo gestiamo comunque per sicurezza.
-                Logger.log("Silenzio in Lock-to-Listen: ignorato (SpeechManager riavvia la sessione autonomamente).")
+                // SpeechManager restarts the session itself while locked.
+                Logger.log("Silence while locked: ignored (SpeechManager restarts on its own).")
                 return
             }
 
-            Logger.log("Silenzio rilevato → ripristino idle.")
+            Logger.log("Silence detected → returning to idle.")
             self.keyUpTimer?.invalidate()
             self.keyUpTimer = nil
-            self.appState.partialTranscript = ""
-            self.appState.audioLevel = 0
-            self.appState.isRecording = false
             self.appState.isProcessing = false
-            self.appState.overlayMode = .idle
+            self.resetToIdle()
         }
 
-        // Livello audio in tempo reale → visualizzazione barre
+        // Live audio level → equaliser bars.
+        // Asymmetric smoothing: rise quickly so the bars feel responsive,
+        // fall slowly so they decay smoothly instead of flickering.
         speechManager.onAudioLevel = { [weak self] level in
             guard let self else { return }
             let current = self.appState.audioLevel
@@ -324,129 +355,106 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Trascrizione finale → pulizia + incolla
         speechManager.onFinalTranscript = { [weak self] rawText in
             guard let self else { return }
-            Logger.log("onFinalTranscript: \(rawText)")
+            Logger.logSensitive("onFinalTranscript", rawText)
 
-            // In Lock-to-Listen: incolla il testo intermedio e riavvia l'ascolto
             if self.isLockedListening {
-                Logger.log("Lock-to-Listen: trascrizione intermedia pronta, incolla e riavvia microfono.")
-                self.appState.overlayMode = .processing
-                let glossaryText = self.appState.applyGlossary(to: rawText)
-
-                self.ollamaManager.isModelLoaded(self.appState.ollamaModelName) { [weak self] isLoaded in
-                    guard let self else { return }
-                    self.appState.processingStatusText = isLoaded ? "Elaborazione..." : "Avvio modello AI..."
-                    self.ollamaManager.cleanTranscript(
-                        glossaryText,
-                        modelName: self.appState.ollamaModelName,
-                        temperature: self.appState.temperature,
-                        preset: self.appState.aiPreset,
-                        customPrompt: self.appState.customPrompt
-                    ) { [weak self] cleaned, success in
-                        guard let self else { return }
-                        if !success { self.appState.triggerOfflineAlert() }
-                        if !cleaned.isEmpty {
-                            let record = TranscriptionRecord(rawText: rawText, cleanedText: cleaned)
-                            self.appState.addRecord(record)
-                            PasteManager.paste(cleaned)
-                        }
-                        // Riavvia l'ascolto solo se ancora in lock
-                        if self.isLockedListening {
-                            self.appState.overlayMode = .recording
-                            self.appState.partialTranscript = ""
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                                guard let self, self.isLockedListening else { return }
-                                self.speechManager.startRecording()
-                            }
-                        }
-                    }
-                }
-                return
+                self.handleLockedTranscript(rawText)
+            } else {
+                self.handleHoldToTalkTranscript(rawText)
             }
+        }
+    }
 
-            // Flusso normale (Hold-to-Talk)
-            self.keyUpTimer?.invalidate()
-            self.keyUpTimer = nil
-            self.appState.isRecording = false
+    /// Keeps the overlay window sized to whatever the capsule currently needs.
+    private func setupOverlayResizing() {
+        let resize: (Any) -> Void = { [weak self] _ in
+            self?.overlayWindow.updateWindowSize()
+        }
+
+        appState.$overlayMode.receive(on: RunLoop.main).sink(receiveValue: resize).store(in: &cancellables)
+        appState.$showOfflineAlert.receive(on: RunLoop.main).sink(receiveValue: resize).store(in: &cancellables)
+        appState.$partialTranscript.receive(on: RunLoop.main).sink(receiveValue: resize).store(in: &cancellables)
+    }
+
+    // MARK: - Transcript Processing
+
+    /// Lock-to-listen: paste this chunk, then immediately resume listening.
+    private func handleLockedTranscript(_ rawText: String) {
+        Logger.log("Lock-to-listen: chunk ready, pasting and restarting the microphone.")
+        appState.overlayMode = .processing
+
+        processAndPaste(rawText) { [weak self] in
+            guard let self, self.isLockedListening else { return }
+            self.appState.overlayMode = .recording
             self.appState.partialTranscript = ""
-            self.appState.audioLevel = 0
-            self.appState.overlayMode = .processing
-            self.appState.isProcessing = true
-            self.appState.processingStatusText = "Elaborazione..."
+            // Small gap so the audio engine has fully torn down before restarting.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                guard let self, self.isLockedListening else { return }
+                self.speechManager.startRecording()
+            }
+        }
+    }
 
-            let glossaryText = self.appState.applyGlossary(to: rawText)
-            Logger.log("Testo post-glossario inviato a Ollama: \(glossaryText)")
+    /// Hold-to-talk: paste once, then return to idle.
+    private func handleHoldToTalkTranscript(_ rawText: String) {
+        keyUpTimer?.invalidate()
+        keyUpTimer = nil
+        appState.isRecording = false
+        appState.partialTranscript = ""
+        appState.audioLevel = 0
+        appState.overlayMode = .processing
+        appState.isProcessing = true
 
-            self.ollamaManager.isModelLoaded(self.appState.ollamaModelName) { [weak self] isLoaded in
+        processAndPaste(rawText) { [weak self] in
+            guard let self else { return }
+            self.appState.isProcessing = false
+            self.appState.overlayMode = .idle
+        }
+    }
+
+    /// Shared pipeline: glossary → Ollama cleanup → history → paste.
+    /// `completion` runs on the main thread once the text has been handled.
+    private func processAndPaste(_ rawText: String, completion: @escaping () -> Void) {
+        appState.processingStatusText = appState.l10n.overlayProcessing
+
+        let glossaryText = appState.applyGlossary(to: rawText)
+        Logger.logSensitive("Text sent to Ollama (post-glossary)", glossaryText)
+
+        // Loading a cold model can take seconds — tell the user which is happening.
+        ollamaManager.isModelLoaded(appState.ollamaModelName) { [weak self] isLoaded in
+            guard let self else { return }
+            self.appState.processingStatusText = isLoaded ? self.appState.l10n.overlayProcessing : self.appState.l10n.overlayStartingModel
+
+            self.ollamaManager.cleanTranscript(
+                glossaryText,
+                modelName: self.appState.ollamaModelName,
+                temperature: self.appState.temperature,
+                preset: self.appState.aiPreset,
+                customPrompt: self.appState.customPrompt,
+                language: self.appState.dictationLanguage
+            ) { [weak self] cleaned, success in
                 guard let self else { return }
-                self.appState.processingStatusText = isLoaded ? "Elaborazione..." : "Avvio modello AI..."
 
-                self.ollamaManager.cleanTranscript(
-                    glossaryText,
-                    modelName: self.appState.ollamaModelName,
-                    temperature: self.appState.temperature,
-                    preset: self.appState.aiPreset,
-                    customPrompt: self.appState.customPrompt
-                ) { [weak self] cleaned, success in
-                    guard let self else { return }
-                    self.appState.isProcessing = false
-                    self.appState.overlayMode = .idle
+                // Ollama unreachable: warn, but still paste the raw transcript.
+                if !success { self.appState.triggerOfflineAlert() }
 
-                    if !success { self.appState.triggerOfflineAlert() }
-                    guard !cleaned.isEmpty else { return }
-
-                    let record = TranscriptionRecord(rawText: rawText, cleanedText: cleaned)
-                    self.appState.addRecord(record)
+                if !cleaned.isEmpty {
+                    self.appState.addRecord(TranscriptionRecord(rawText: rawText, cleanedText: cleaned))
                     PasteManager.paste(cleaned)
                 }
+                completion()
             }
         }
+    }
 
-        // Hotkey registrato dalla modalità interattiva
-        keyboardManager.onHotkeyRecorded = { [weak self] keyCode in
-            guard let self else { return }
-            Logger.log("Nuovo hotkey registrato: \(keyCode) (\(KeyboardManager.keyName(for: keyCode)))")
-            self.appState.hotkeyKeyCode = keyCode
-            self.appState.isRecordingHotkey = false
-            self.appState.hotkeyRejectionMessage = nil
-            self.appState.persistHotkey()
-            self.keyboardManager.updateTargetKey(keyCode)
-        }
-
-        // Hotkey rifiutato (es. Fn/Globe)
-        keyboardManager.onHotkeyRejected = { [weak self] message in
-            guard let self else { return }
-            self.appState.hotkeyRejectionMessage = message
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-                self?.appState.hotkeyRejectionMessage = nil
-            }
-        }
-
-        // MARK: - Ridimensionamento dinamico overlay
-        // Osserva i cambiamenti di stato che influenzano la dimensione della capsula
-        // e ridimensiona la finestra overlay di conseguenza.
-        appState.$overlayMode
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.overlayWindow.updateWindowSize()
-            }
-            .store(in: &cancellables)
-
-        appState.$showOfflineAlert
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.overlayWindow.updateWindowSize()
-            }
-            .store(in: &cancellables)
-
-        appState.$partialTranscript
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.overlayWindow.updateWindowSize()
-            }
-            .store(in: &cancellables)
+    /// Clears the transient recording state and collapses the overlay.
+    private func resetToIdle() {
+        appState.isRecording = false
+        appState.partialTranscript = ""
+        appState.audioLevel = 0
+        appState.overlayMode = .idle
     }
 
     // MARK: - Actions
@@ -461,17 +469,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ollamaManager.checkConnection { [weak self] connected in
             guard let self else { return }
             self.appState.isOllamaConnected = connected
-            if connected {
-                self.ollamaManager.fetchAvailableModels { models in
-                    self.appState.availableOllamaModels = models
-                    // Se il modello correntemente selezionato non fa parte della lista dei modelli ed essa non è vuota,
-                    // potremmo selezionare automaticamente il primo per evitare errori.
-                    if !models.isEmpty && !models.contains(self.appState.ollamaModelName) {
-                        self.appState.ollamaModelName = models[0]
-                    }
-                }
-            } else {
+
+            guard connected else {
                 self.appState.availableOllamaModels = []
+                self.appState.loadedOllamaModels = []
+                return
+            }
+
+            self.ollamaManager.fetchAvailableModels { [weak self] models in
+                guard let self else { return }
+                self.appState.availableOllamaModels = models
+                // If the selected model is no longer installed, fall back to the first one
+                // so the app is not stuck pointing at something that cannot answer.
+                if !models.isEmpty && !models.contains(self.appState.ollamaModelName) {
+                    self.appState.ollamaModelName = models[0]
+                }
+            }
+
+            self.ollamaManager.fetchLoadedModels { [weak self] loaded in
+                self?.appState.loadedOllamaModels = loaded
             }
         }
     }
@@ -482,22 +498,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         speechManager.stopRecording()
     }
 
+    /// Left-clicking anywhere is an escape hatch out of lock-to-listen.
     private func setupMouseMonitors() {
-        // Monitor locale per click sinistro (interrompe la registrazione bloccata)
+        // Local monitor: clicks inside MyWispr's own windows.
         mouseMonitorLocal = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
             guard let self else { return event }
             if self.isLockedListening {
-                Logger.log("Mouse click locale rilevato. Interrompo registrazione bloccata.")
+                Logger.log("Local mouse click detected. Stopping locked recording.")
                 self.stopLockedRecording()
             }
             return event
         }
-        
-        // Monitor globale per click sinistro (interrompe la registrazione bloccata se l'app è in background)
+
+        // Global monitor: clicks in any other app.
         mouseMonitorGlobal = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] _ in
             guard let self else { return }
             if self.isLockedListening {
-                Logger.log("Mouse click globale rilevato. Interrompo registrazione bloccata.")
+                Logger.log("Global mouse click detected. Stopping locked recording.")
                 self.stopLockedRecording()
             }
         }
@@ -526,16 +543,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-// MARK: - Entry Point
+// MARK: - Notification Names
 
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.run()
+extension Notification.Name {
+    static let mywisprStartHotkeyRecording = Notification.Name("mywispr.startHotkeyRecording")
+    static let mywisprToggleDashboard = Notification.Name("mywispr.toggleDashboard")
+    static let mywisprRefreshOllama = Notification.Name("mywispr.refreshOllama")
+}
 
 // MARK: - PassThroughHostingView
 
-/// Fa passare i click che cadono nel padding della finestra (fuori dalla capsula).
+/// Lets clicks that land in the window's transparent padding fall through to
+/// whatever is underneath, so the overlay only intercepts the capsule itself.
 class PassThroughHostingView<Content: View>: NSHostingView<Content> {
     weak var overlayWindow: OverlayWindow?
 
@@ -548,17 +567,22 @@ class PassThroughHostingView<Content: View>: NSHostingView<Content> {
             showOfflineAlert: window.appState.showOfflineAlert,
             partialTranscript: window.appState.partialTranscript
         )
-        let centerX = bounds.width / 2
-        let centerY = bounds.height / 2
         let rect = NSRect(
-            x: centerX - capsule.width / 2,
-            y: centerY - capsule.height / 2,
+            x: bounds.midX - capsule.width / 2,
+            y: bounds.midY - capsule.height / 2,
             width: capsule.width,
             height: capsule.height
         )
         guard rect.contains(point) else {
-            return nil  // Click nel padding → passa attraverso
+            return nil  // Click in the padding → pass through
         }
         return super.hitTest(point)
     }
 }
+
+// MARK: - Entry Point
+
+let app = NSApplication.shared
+let delegate = AppDelegate()
+app.delegate = delegate
+app.run()

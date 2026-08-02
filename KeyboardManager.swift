@@ -1,15 +1,21 @@
 import Cocoa
 import ApplicationServices
 
-/// Gestisce l'intercettazione globale della tastiera tramite CGEventTap.
-/// Il tap viene eseguito su un thread dedicato per non bloccare il main thread.
+/// Intercepts the global hotkey through a `CGEventTap`.
+///
+/// The tap runs on a dedicated run loop thread so it never blocks the main
+/// thread. Note that this callback sits in the system-wide event path: it is
+/// invoked for every matching key event on the Mac, so it must stay cheap —
+/// no disk I/O, no allocation-heavy work.
 final class KeyboardManager {
 
-    // MARK: - Callbacks (vengono chiamati sul main thread)
+    // MARK: - Callbacks (always delivered on the main thread)
     var onKeyDown: (() -> Void)?
     var onKeyUp: (() -> Void)?
     var onHotkeyRecorded: ((CGKeyCode) -> Void)?
-    var onHotkeyRejected: ((String) -> Void)?
+    /// Raised when the user presses a key macOS cannot deliver as a hotkey.
+    /// The user-facing wording lives in `L10n`, so this carries no string.
+    var onHotkeyRejected: (() -> Void)?
 
     // MARK: - State
     private(set) var isRunning = false
@@ -22,10 +28,11 @@ final class KeyboardManager {
     private var runLoopSource: CFRunLoopSource?
     private var tapThread: Thread?
     private var tapRunLoop: CFRunLoop?
-    
-    // MARK: - Local monitor per registrazione hotkey (NON richiede Accessibilità)
+
+    // MARK: - Local monitor used while recording a new hotkey (does NOT need Accessibility)
     private var localMonitor: Any?
-    private var globalMonitor: Any?
+
+    private var permissionTimer: Timer?
 
     init(keyCode: CGKeyCode) {
         self.targetKeyCode = keyCode
@@ -37,51 +44,89 @@ final class KeyboardManager {
         targetKeyCode = code
     }
 
-    /// Entra in modalità di registrazione hotkey.
-    /// Usa NSEvent monitor locale + globale (NON richiede Accessibilità).
+    /// Enters hotkey-recording mode.
+    ///
+    /// Uses an `NSEvent` local monitor rather than the event tap, so the user can
+    /// rebind the hotkey before Accessibility has been granted.
     func startRecordingNextKey() {
         isKeyDown = false
         isRecordingNextKey = true
-        Logger.log("Modalità registrazione hotkey attivata.")
-        
-        // Rimuovi i monitor precedenti se ce ne sono
+        Logger.log("Hotkey recording mode enabled.")
+
         stopRecordingMonitors()
-        
-        // Monitor LOCALE (cattura tasti quando la nostra finestra è in primo piano)
+
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
             guard let self, self.isRecordingNextKey else { return event }
             if self.captureKeyFromNSEvent(event) {
-                return nil // Consuma l'evento
+                return nil // Swallow the event
             }
             return event
         }
-        
-        Logger.log("Monitor locale per registrazione hotkey installato.")
+
+        Logger.log("Local monitor for hotkey recording installed.")
     }
-    
+
+    /// Starts the event tap on a dedicated thread.
+    func start() {
+        guard !isRunning else { return }
+
+        let trusted = AXIsProcessTrusted()
+        Logger.log("AXIsProcessTrusted: \(trusted)")
+
+        if !trusted {
+            Logger.log("Accessibility permission not granted. Starting silent polling.")
+            // Deliberately no system prompt here: onboarding in DashboardView owns that flow.
+            startPermissionPolling()
+            return
+        }
+
+        startEventTap()
+    }
+
+    func stop() {
+        permissionTimer?.invalidate()
+        permissionTimer = nil
+        stopRecordingMonitors()
+
+        guard isRunning else { return }
+        isRunning = false
+
+        if let tap = eventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+        }
+        if let source = runLoopSource, let loop = tapRunLoop {
+            CFRunLoopRemoveSource(loop, source, .commonModes)
+        }
+        if let loop = tapRunLoop {
+            CFRunLoopStop(loop)
+        }
+        eventTap = nil
+        runLoopSource = nil
+        tapRunLoop = nil
+        Logger.log("Keyboard hook stopped.")
+    }
+
+    // MARK: - Hotkey Recording
+
     private func stopRecordingMonitors() {
         if let m = localMonitor {
             NSEvent.removeMonitor(m)
             localMonitor = nil
         }
-        if let m = globalMonitor {
-            NSEvent.removeMonitor(m)
-            globalMonitor = nil
-        }
     }
-    
-    /// Tenta di catturare il tasto da un NSEvent. Ritorna true se registrato con successo.
+
+    /// Attempts to capture a key from an `NSEvent`. Returns true once one is recorded.
     private func captureKeyFromNSEvent(_ event: NSEvent) -> Bool {
         var keyCode = CGKeyCode(event.keyCode)
-        
+
         if event.type == .flagsChanged {
             let flags = event.modifierFlags
-            // Determina il modificatore corretto dai flag, non dal keyCode.
-            // Su MacBook recenti, il keyCode 179 (Fn/Globe) viene emesso
-            // come evento fantasma quando si preme qualsiasi modificatore.
+            // Derive the modifier from the flags rather than the key code: on recent
+            // MacBooks key code 179 (Fn/Globe) is emitted as a phantom event whenever
+            // any modifier is pressed.
             if flags.contains(.option) {
-                // Distingui sinistro/destro: keyCode 58=left, 61=right.
-                // Se il keyCode originale è un Option valido, usalo. Altrimenti default a 61.
+                // Distinguish left/right: 58 = left, 61 = right. Keep the reported
+                // code when it is already a valid Option key, otherwise assume right.
                 keyCode = (keyCode == 58) ? 58 : 61
             } else if flags.contains(.command) {
                 keyCode = (keyCode == 55) ? 55 : 54
@@ -90,58 +135,35 @@ final class KeyboardManager {
             } else if flags.contains(.shift) {
                 keyCode = (keyCode == 56) ? 56 : 60
             } else {
-                // Nessun flag modificatore attivo (es. rilascio di un tasto) → ignora
+                // No modifier flag set (e.g. a key release) → ignore
                 return false
             }
         } else if event.type != .keyDown {
             return false
         }
-        
-        // Filtra keyCode inutilizzabili
-        if keyCode == 179 || keyCode == 63 { // 179=Fn/Globe, 63=fn legacy
-            Logger.log("Tasto Fn/Globe ignorato (non utilizzabile come hotkey).")
+
+        // Reject key codes macOS will not deliver reliably.
+        if keyCode == 179 || keyCode == 63 { // 179 = Fn/Globe, 63 = legacy fn
+            Logger.log("Fn/Globe key ignored (unusable as a hotkey).")
             DispatchQueue.main.async { [weak self] in
-                self?.onHotkeyRejected?("Il tasto Fn/Globe non è supportato da macOS come hotkey. Scegli un altro tasto (es. Option, Ctrl, Shift).")
+                self?.onHotkeyRejected?()
             }
             return false
         }
-        
+
         isRecordingNextKey = false
         stopRecordingMonitors()
-        Logger.log("Nuovo hotkey registrato via NSEvent: keyCode=\(keyCode) (\(KeyboardManager.keyName(for: keyCode)))")
+        Logger.log("New hotkey recorded: keyCode=\(keyCode)")
         DispatchQueue.main.async { [weak self] in
             self?.onHotkeyRecorded?(keyCode)
         }
         return true
     }
 
-    /// Avvia l'event tap su un thread dedicato.
-    func start() {
-        guard !isRunning else { return }
-        
-        let trusted = AXIsProcessTrusted()
-        Logger.log("AXIsProcessTrusted: \(trusted)")
-        
-        if !trusted {
-            Logger.log("Permessi di Accessibilita non concessi. Avvio polling silenzioso.")
-            // NON mostrare il popup qui: viene gestito dall'onboarding in DashboardView
-            startPermissionPolling()
-            return
-        }
-        
-        startEventTap()
-    }
-    
-    /// Chiede i permessi di Accessibilit\u00e0 tramite il popup di sistema.
-    /// Va chiamato SOLO UNA VOLTA dall'onboarding, non automaticamente.
-    func requestAccessibilityPermission() {
-        guard !AXIsProcessTrusted() else { return }
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-        AXIsProcessTrustedWithOptions(options)
-    }
+    // MARK: - Event Tap Lifecycle
 
-    private var permissionTimer: Timer?
-    
+    /// Polls for the Accessibility permission and starts the tap as soon as it is granted,
+    /// so the user does not have to relaunch the app after flipping the toggle.
     private func startPermissionPolling() {
         permissionTimer?.invalidate()
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] timer in
@@ -149,12 +171,12 @@ final class KeyboardManager {
             if AXIsProcessTrusted() {
                 timer.invalidate()
                 self.permissionTimer = nil
-                Logger.log("Permessi di Accessibilita concessi! Avvio Event Tap.")
+                Logger.log("Accessibility permission granted. Starting event tap.")
                 self.startEventTap()
             }
         }
     }
-    
+
     private func startEventTap() {
         let selfPointer = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
         let eventMask: CGEventMask = (1 << CGEventType.flagsChanged.rawValue) |
@@ -166,14 +188,14 @@ final class KeyboardManager {
             place: .headInsertEventTap,
             options: .defaultTap,
             eventsOfInterest: eventMask,
-            callback: { proxy, type, event, refcon -> Unmanaged<CGEvent>? in
+            callback: { _, type, event, refcon -> Unmanaged<CGEvent>? in
                 guard let refcon else { return Unmanaged.passUnretained(event) }
                 let manager = Unmanaged<KeyboardManager>.fromOpaque(refcon).takeUnretainedValue()
                 return manager.handleTapEvent(type: type, event: event)
             },
             userInfo: selfPointer
         ) else {
-            Logger.log("ERRORE: Impossibile creare l'Event Tap anche con permessi concessi.")
+            Logger.log("ERROR: could not create the event tap even with permission granted.")
             return
         }
 
@@ -181,13 +203,13 @@ final class KeyboardManager {
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         isRunning = true
 
-        // Avvia il tap su un thread dedicato
         let thread = Thread { [weak self] in
             guard let self, let source = self.runLoopSource else { return }
-            self.tapRunLoop = CFRunLoopGetCurrent()
-            CFRunLoopAddSource(self.tapRunLoop!, source, .commonModes)
+            let loop = CFRunLoopGetCurrent()
+            self.tapRunLoop = loop
+            CFRunLoopAddSource(loop, source, .commonModes)
             CGEvent.tapEnable(tap: tap, enable: true)
-            Logger.log("Event Tap ATTIVO su thread dedicato. Tasto target: \(self.targetKeyCode) (\(KeyboardManager.keyName(for: self.targetKeyCode)))")
+            Logger.log("Event tap ACTIVE on dedicated thread. Target key code: \(self.targetKeyCode)")
             CFRunLoopRun()
         }
         thread.name = "com.attilio.mywispr.keyboard"
@@ -196,40 +218,13 @@ final class KeyboardManager {
         tapThread = thread
     }
 
-    func stop() {
-        permissionTimer?.invalidate()
-        permissionTimer = nil
-        stopRecordingMonitors()
-        
-        guard isRunning else { return }
-        isRunning = false
+    // MARK: - CGEvent Handling (runs on the tap thread)
 
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-        }
-        if let loop = tapRunLoop {
-            CFRunLoopStop(loop)
-        }
-        if let source = runLoopSource, let loop = tapRunLoop {
-            CFRunLoopRemoveSource(loop, source, .commonModes)
-        }
-        eventTap = nil
-        runLoopSource = nil
-        tapRunLoop = nil
-        Logger.log("Keyboard hook fermato.")
-    }
-
-    // MARK: - CGEvent Handling (chiamato sul tap thread)
-
+    /// Hot path: called for every key and modifier event on the system.
+    /// Everything before the `targetKeyCode` check must stay allocation- and I/O-free.
     private func handleTapEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
 
-        // Log di debug per TUTTI gli eventi flagsChanged (utile per diagnostica)
-        if type == .flagsChanged {
-            Logger.log("[TAP] flagsChanged keyCode=\(keyCode) flags=\(event.flags.rawValue)")
-        }
-
-        // Comportamento normale: controlla solo il tasto target
         guard keyCode == targetKeyCode else {
             return Unmanaged.passUnretained(event)
         }
@@ -239,13 +234,13 @@ final class KeyboardManager {
         if isPressedNow && !isKeyDown {
             isKeyDown = true
             DispatchQueue.main.async { [weak self] in
-                Logger.log("Hotkey GIÙ")
+                Logger.log("Hotkey DOWN")
                 self?.onKeyDown?()
             }
         } else if !isPressedNow && isKeyDown {
             isKeyDown = false
             DispatchQueue.main.async { [weak self] in
-                Logger.log("Hotkey SU")
+                Logger.log("Hotkey UP")
                 self?.onKeyUp?()
             }
         }
@@ -253,6 +248,8 @@ final class KeyboardManager {
         return Unmanaged.passUnretained(event)
     }
 
+    /// Modifier keys report their state through the event flags rather than
+    /// keyDown/keyUp, so they need separate handling.
     private func isKeyCurrentlyPressed(keyCode: CGKeyCode, type: CGEventType, event: CGEvent) -> Bool {
         if isModifierKey(keyCode) {
             let flags = event.flags
@@ -271,38 +268,5 @@ final class KeyboardManager {
 
     private func isModifierKey(_ code: CGKeyCode) -> Bool {
         return [54, 55, 56, 57, 58, 59, 60, 61, 62].contains(code)
-    }
-
-    // MARK: - Key Names
-
-    static func keyName(for code: CGKeyCode) -> String {
-        switch code {
-        case 61: return "Option Destro"
-        case 58: return "Option Sinistro"
-        case 54: return "Command Destro"
-        case 55: return "Command Sinistro"
-        case 59: return "Ctrl Sinistro"
-        case 62: return "Ctrl Destro"
-        case 56: return "Shift Sinistro"
-        case 60: return "Shift Destro"
-        case 57: return "Caps Lock"
-        case 36: return "Invio"
-        case 49: return "Spazio"
-        case 53: return "Esc"
-        case 48: return "Tab"
-        case 122: return "F1"
-        case 120: return "F2"
-        case 99:  return "F3"
-        case 118: return "F4"
-        case 96:  return "F5"
-        case 97:  return "F6"
-        case 98:  return "F7"
-        case 100: return "F8"
-        case 101: return "F9"
-        case 109: return "F10"
-        case 103: return "F11"
-        case 111: return "F12"
-        default:  return "Tasto [\(code)]"
-        }
     }
 }

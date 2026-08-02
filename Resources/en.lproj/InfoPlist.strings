@@ -1,0 +1,6 @@
+/* Permission prompts shown by macOS.
+   These follow the SYSTEM language, not MyWispr's in-app language toggle:
+   macOS resolves them from the bundle before the app is running. */
+
+"NSMicrophoneUsageDescription" = "MyWispr needs microphone access to record your voice and transcribe it.";
+"NSSpeechRecognitionUsageDescription" = "MyWispr needs speech recognition access to transcribe your words.";

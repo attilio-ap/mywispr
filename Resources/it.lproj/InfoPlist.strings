@@ -1,0 +1,6 @@
+/* Richieste di permesso mostrate da macOS.
+   Seguono la lingua di SISTEMA, non il selettore di lingua interno a MyWispr:
+   macOS le legge dal bundle prima che l'app sia in esecuzione. */
+
+"NSMicrophoneUsageDescription" = "MyWispr richiede l'accesso al microfono per registrare la tua voce e trascriverla.";
+"NSSpeechRecognitionUsageDescription" = "MyWispr richiede l'accesso al riconoscimento vocale nativo per trascrivere le tue parole.";

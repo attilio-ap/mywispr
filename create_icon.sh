@@ -1,30 +1,50 @@
 #!/bin/bash
-set -e
+# Generates AppIcon.icns from a single square source image.
+#
+# Usage:
+#   ./create_icon.sh path/to/icon-source.png
+#
+# The source should be square and at least 1024x1024 for a crisp result.
+set -euo pipefail
 
-INPUT_IMAGE="/Users/attilio/.gemini/antigravity-cli/brain/5ba09116-20ee-4881-ad8e-6ebc665610c1/app_icon_base_1782674019493.jpg"
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 <source-image>"
+    echo "  The source image should be square, ideally 1024x1024 or larger."
+    exit 1
+fi
+
+INPUT_IMAGE="$1"
 ICONSET_DIR="AppIcon.iconset"
 
-echo "=== Generazione icone in corso ==="
+if [ ! -f "$INPUT_IMAGE" ]; then
+    echo "Error: source image not found: $INPUT_IMAGE"
+    exit 1
+fi
 
-# 1. Crea la cartella temporanea per l'iconset
+echo "=== Generating icons from $INPUT_IMAGE ==="
+
+# Clean any leftovers from a previous run, then build the iconset.
+rm -rf "$ICONSET_DIR"
 mkdir -p "$ICONSET_DIR"
 
-# 2. Genera le varie dimensioni necessarie per macOS
-sips -s format png -z 16 16     "$INPUT_IMAGE" --out "$ICONSET_DIR/icon_16x16.png" > /dev/null
-sips -s format png -z 32 32     "$INPUT_IMAGE" --out "$ICONSET_DIR/icon_16x16@2x.png" > /dev/null
-sips -s format png -z 32 32     "$INPUT_IMAGE" --out "$ICONSET_DIR/icon_32x32.png" > /dev/null
-sips -s format png -z 64 64     "$INPUT_IMAGE" --out "$ICONSET_DIR/icon_32x32@2x.png" > /dev/null
-sips -s format png -z 128 128   "$INPUT_IMAGE" --out "$ICONSET_DIR/icon_128x128.png" > /dev/null
-sips -s format png -z 256 256   "$INPUT_IMAGE" --out "$ICONSET_DIR/icon_128x128@2x.png" > /dev/null
-sips -s format png -z 256 256   "$INPUT_IMAGE" --out "$ICONSET_DIR/icon_256x256.png" > /dev/null
-sips -s format png -z 512 512   "$INPUT_IMAGE" --out "$ICONSET_DIR/icon_256x256@2x.png" > /dev/null
-sips -s format png -z 512 512   "$INPUT_IMAGE" --out "$ICONSET_DIR/icon_512x512.png" > /dev/null
-sips -s format png -z 1024 1024 "$INPUT_IMAGE" --out "$ICONSET_DIR/icon_512x512@2x.png" > /dev/null
+# macOS expects each nominal size at both 1x and 2x.
+generate() {
+    local size="$1" name="$2"
+    sips -s format png -z "$size" "$size" "$INPUT_IMAGE" --out "$ICONSET_DIR/$name.png" > /dev/null
+}
 
-# 3. Compila in file .icns
+generate 16   icon_16x16
+generate 32   icon_16x16@2x
+generate 32   icon_32x32
+generate 64   icon_32x32@2x
+generate 128  icon_128x128
+generate 256  icon_128x128@2x
+generate 256  icon_256x256
+generate 512  icon_256x256@2x
+generate 512  icon_512x512
+generate 1024 icon_512x512@2x
+
 iconutil -c icns "$ICONSET_DIR"
-
-# 4. Pulisci la cartella temporanea
 rm -rf "$ICONSET_DIR"
 
-echo "=== AppIcon.icns creata con successo! ==="
+echo "=== AppIcon.icns created successfully ==="

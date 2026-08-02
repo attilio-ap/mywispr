@@ -1,18 +1,23 @@
 import Cocoa
 import SwiftUI
 
-// Modificato da NSWindow a NSPanel per poter utilizzare lo stile .nonactivatingPanel.
-// Questo consente all'utente di fare click sui bottoni della notch senza che l'applicazione
-// diventi attiva in primo piano rubando il focus (cursore) all'applicazione in cui sta scrivendo.
+/// Floating "Dynamic Island" style overlay shown above every other window.
+///
+/// Implemented as an `NSPanel` rather than an `NSWindow` so it can use the
+/// `.nonactivatingPanel` style: the user can click the buttons inside the notch
+/// without MyWispr becoming the active app, which would steal the text cursor
+/// from whatever they are currently typing into.
 class OverlayWindow: NSPanel {
     let appState: AppState
-    /// Padding intorno alla capsula per assicurare che ombre e hover funzionino correttamente.
+
+    /// Transparent padding around the capsule, so shadows and hover tracking
+    /// have room to work without being clipped by the window bounds.
     private let capsulePadding: CGFloat = 12
-    
+
     init(appState: AppState) {
         self.appState = appState
-        
-        // Dimensione iniziale piccola (idle); verrà aggiornata dinamicamente.
+
+        // Start at the idle size; `updateWindowSize()` keeps it in sync afterwards.
         let capsule = OverlayWindow.capsuleSize(for: .idle, showOfflineAlert: false, partialTranscript: "")
         let size = NSSize(width: capsule.width + 24, height: capsule.height + 24)
         super.init(
@@ -30,7 +35,11 @@ class OverlayWindow: NSPanel {
         isReleasedWhenClosed = false
     }
 
-    /// Restituisce la dimensione della capsula in base allo stato corrente.
+    /// Single source of truth for the capsule geometry.
+    ///
+    /// Both the SwiftUI view and the window frame derive their size from this,
+    /// and `PassThroughHostingView` uses it for hit testing — if these ever
+    /// disagreed, clicks would land outside the visible capsule.
     static func capsuleSize(for mode: OverlayMode, showOfflineAlert: Bool, partialTranscript: String) -> NSSize {
         if showOfflineAlert {
             return NSSize(width: 200, height: 30)
@@ -41,49 +50,36 @@ class OverlayWindow: NSPanel {
         case .hovered:
             return NSSize(width: 300, height: 30)
         case .recording:
-            let w: CGFloat = partialTranscript.isEmpty ? 140 : 380
-            return NSSize(width: w, height: 30)
+            // Widen once there is live text to show.
+            return NSSize(width: partialTranscript.isEmpty ? 140 : 380, height: 30)
         case .processing:
             return NSSize(width: 190, height: 30)
         }
     }
 
-    /// Posiziona l'overlay centrato sull'asse orizzontale fisico dello schermo principale e sollevato rispetto alla Dock.
+    /// Places the overlay horizontally centred on the main screen, lifted clear of the Dock.
     func showCentered() {
-        guard let screen = NSScreen.main else { return }
-        let screenFrame = screen.frame
-        let visibleFrame = screen.visibleFrame
-        
-        let w = frame.width
-        let h = frame.height
-        
-        // Centrato esattamente sulla larghezza fisica dello schermo principale
-        let x = screenFrame.midX - w / 2
-        // Spostato leggermente più in alto (70pt sopra il bordo visibile inferiore/Dock)
-        let y = visibleFrame.minY + 70
-        
-        setFrame(NSRect(x: x, y: y, width: w, height: h), display: true, animate: false)
+        updateWindowSize()
         orderFrontRegardless()
     }
 
-    /// Ridimensiona la finestra overlay per adattarla alla capsula corrente, mantenendola centrata.
+    /// Resizes the window to fit the current capsule, keeping it centred.
     func updateWindowSize() {
         guard let screen = NSScreen.main else { return }
-        let screenFrame = screen.frame
-        let visibleFrame = screen.visibleFrame
-        
+
         let capsule = OverlayWindow.capsuleSize(
             for: appState.overlayMode,
             showOfflineAlert: appState.showOfflineAlert,
             partialTranscript: appState.partialTranscript
         )
-        
+
         let newW = capsule.width + capsulePadding * 2
         let newH = capsule.height + capsulePadding * 2
-        
-        let x = screenFrame.midX - newW / 2
-        let y = visibleFrame.minY + 70
-        
+
+        let x = screen.frame.midX - newW / 2
+        // 70pt above the bottom of the visible area, i.e. clear of the Dock.
+        let y = screen.visibleFrame.minY + 70
+
         setFrame(NSRect(x: x, y: y, width: newW, height: newH), display: true, animate: false)
     }
 }
@@ -106,33 +102,23 @@ struct OverlayView: View {
         state.audioLevel > silenceThreshold
     }
 
-    private var capsuleWidth: CGFloat {
-        if state.showOfflineAlert {
-            return 200
-        }
-        switch state.overlayMode {
-        case .idle: return 36
-        case .hovered: return 300
-        case .recording: return state.partialTranscript.isEmpty ? 140 : 380
-        case .processing: return 190
-        }
-    }
-
-    private var capsuleHeight: CGFloat {
-        switch state.overlayMode {
-        case .idle: return 10
-        default: return 30
-        }
+    /// Derived from `OverlayWindow.capsuleSize` so the view and the window can never drift apart.
+    private var capsuleSize: NSSize {
+        OverlayWindow.capsuleSize(
+            for: state.overlayMode,
+            showOfflineAlert: state.showOfflineAlert,
+            partialTranscript: state.partialTranscript
+        )
     }
 
     var body: some View {
         ZStack {
-            // Capsula principale — vetro sagomato
+            // Main capsule — shaped glass
             ZStack {
                 if state.showOfflineAlert {
-                    // Stato di errore offline
+                    // Offline error state
                     Capsule()
-                        .fill(.ultraThinMaterial)  // sfocatura sagomata alla capsula
+                        .fill(.ultraThinMaterial)  // blur clipped to the capsule shape
                         .overlay(
                             Capsule()
                                 .fill(Color.red.opacity(0.12))
@@ -142,28 +128,28 @@ struct OverlayView: View {
                                 .stroke(Color.red.opacity(0.55), lineWidth: 1.0)
                         )
                 } else {
-                    // Stato normale: vetro satinato stile Apple
+                    // Normal state: Apple-style frosted glass
                     Capsule()
-                        .fill(.ultraThinMaterial)  // sfocatura sagomata alla capsula
+                        .fill(.ultraThinMaterial)  // blur clipped to the capsule shape
                         .overlay(
-                            // Leggero tint bianco interno per look "frosted"
+                            // Subtle inner white tint for the frosted look
                             Capsule()
                                 .fill(Color.white.opacity(0.15))
                         )
                         .overlay(
-                            // Contorno esterno definito
+                            // Defined outer edge
                             Capsule()
                                 .stroke(Color.black.opacity(0.22), lineWidth: 1.0)
                         )
                         .overlay(
-                            // Highlight rim interno in alto per effetto vetro 3D
+                            // Inner top highlight rim for the 3D glass effect
                             Capsule()
                                 .stroke(Color.white.opacity(0.55), lineWidth: 0.5)
                                 .padding(0.5)
                         )
                 }
 
-                // Contenuto clippato
+                // Clipped content
                 ZStack {
                     if state.showOfflineAlert {
                         offlineAlertView
@@ -172,11 +158,11 @@ struct OverlayView: View {
                         switch state.overlayMode {
                         case .idle:
                             EmptyView()
-                            
+
                         case .hovered:
                             expandedSettingsView
                                 .transition(.opacity.animation(.easeInOut(duration: 0.15)))
-                            
+
                         case .recording:
                             if !state.partialTranscript.isEmpty {
                                 streamingTranscriptView
@@ -188,7 +174,7 @@ struct OverlayView: View {
                                 idleDotsView
                                     .transition(.opacity.animation(.easeInOut(duration: 0.15)))
                             }
-                            
+
                         case .processing:
                             processingView
                                 .transition(.opacity.animation(.easeInOut(duration: 0.15)))
@@ -197,19 +183,19 @@ struct OverlayView: View {
                 }
                 .clipShape(Capsule())
             }
-            .frame(width: capsuleWidth, height: capsuleHeight)
+            .frame(width: capsuleSize.width, height: capsuleSize.height)
             .contentShape(Capsule())
-            .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 3)  // ombra solo sulla capsula
+            .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 3)  // shadow on the capsule only
             .onHover { hovering in
                 isMouseInside = hovering
-                
+
                 guard !state.showOfflineAlert else { return }
                 guard state.overlayMode == .idle || state.overlayMode == .hovered else { return }
-                
+
                 if hovering {
                     state.overlayMode = .hovered
-
                 } else {
+                    // Small grace period so brushing past the capsule doesn't collapse it instantly.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                         if !isMouseInside && state.overlayMode == .hovered {
                             state.overlayMode = .idle
@@ -244,38 +230,40 @@ struct OverlayView: View {
         }
     }
 
-    // MARK: - Vista di Errore Offline
+    // MARK: - Offline Error View
+
     private var offlineAlertView: some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 10, weight: .bold))
                 .foregroundColor(.red)
-            Text("Ollama Offline - Testo Grezzo")
+            Text(state.l10n.overlayOllamaOffline)
                 .font(.system(size: 9, weight: .bold))
                 .foregroundColor(.red)
         }
     }
 
     // MARK: - Expanded Settings (Preset Selection)
+
     private var expandedSettingsView: some View {
         HStack(spacing: 8) {
             Circle()
                 .fill(state.isOllamaConnected ? Color.green : Color.orange)
                 .frame(width: 5, height: 5)
-            
-            Text(state.aiPreset.displayName.uppercased())
+
+            Text(state.l10n.presetName(state.aiPreset).uppercased())
                 .font(.system(size: 8, weight: .black))
                 .foregroundColor(.primary.opacity(0.85))
                 .lineLimit(1)
                 .frame(width: 110, alignment: .leading)
-            
+
             Spacer(minLength: 0)
-            
+
             HStack(spacing: 4) {
                 presetButton(preset: .standard, icon: "square.and.pencil")
                 presetButton(preset: .professional, icon: "briefcase.fill")
                 presetButton(preset: .bullets, icon: "list.bullet")
-                presetButton(preset: .englishTranslation, icon: "character.bubble.fill")
+                presetButton(preset: .translation, icon: "character.bubble.fill")
                 presetButton(preset: .promptBuilder, icon: "lightbulb.fill")
             }
         }
@@ -286,11 +274,7 @@ struct OverlayView: View {
         let isSelected = state.aiPreset == preset
         return Button(action: {
             state.aiPreset = preset
-            let encoder = JSONEncoder()
-            if let encoded = try? encoder.encode(preset) {
-                UserDefaults.standard.set(encoded, forKey: "mw_preset")
-                UserDefaults.standard.synchronize()
-            }
+            state.persistData()
         }) {
             Image(systemName: icon)
                 .font(.system(size: 8, weight: .bold))
@@ -302,16 +286,17 @@ struct OverlayView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Trascrizione in Tempo Reale
+    // MARK: - Live Transcript
+
     private var streamingTranscriptView: some View {
         HStack(spacing: 8) {
-            // Indicatore microfono pulsante rosso
+            // Pulsing red microphone indicator
             Image(systemName: "mic.fill")
                 .font(.system(size: 9, weight: .bold))
                 .foregroundColor(.red)
                 .opacity(processingAnimating ? 1.0 : 0.4)
                 .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: processingAnimating)
-            
+
             Text(state.partialTranscript)
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.primary)
@@ -327,7 +312,8 @@ struct OverlayView: View {
         }
     }
 
-    // MARK: - Equalizzatore Audio
+    // MARK: - Audio Equaliser
+
     private var barsView: some View {
         HStack(spacing: 1.5) {
             ForEach(0..<barCount, id: \.self) { i in
@@ -341,6 +327,7 @@ struct OverlayView: View {
     }
 
     private func barHeight(for index: Int) -> CGFloat {
+        // sqrt() compresses the dynamic range so quiet speech still moves the bars.
         let level = sqrt(CGFloat(state.audioLevel))
         let maxH: CGFloat = 12
         let minH: CGFloat = 2.2
@@ -348,6 +335,7 @@ struct OverlayView: View {
     }
 
     // MARK: - Idle Dots
+
     private var idleDotsView: some View {
         HStack(spacing: 5) {
             ForEach(0..<3, id: \.self) { i in
@@ -367,13 +355,14 @@ struct OverlayView: View {
     }
 
     // MARK: - Processing Status
+
     private var processingView: some View {
         HStack(spacing: 8) {
             ProgressView()
                 .progressViewStyle(CircularProgressViewStyle())
                 .scaleEffect(0.55)
                 .frame(width: 12, height: 12)
-            
+
             Text(state.processingStatusText)
                 .font(.system(size: 9, weight: .bold))
                 .foregroundColor(.primary)
@@ -382,7 +371,10 @@ struct OverlayView: View {
         .padding(.horizontal, 10)
     }
 
-    // MARK: - Jitter equalizzatore
+    // MARK: - Equaliser Jitter
+
+    /// The microphone only gives us one overall level, so each bar gets a random
+    /// multiplier refreshed a few times a second to make the equaliser feel alive.
     private func startJitter() {
         jitterTimer?.invalidate()
         jitterTimer = Timer.scheduledTimer(withTimeInterval: 0.07, repeats: true) { _ in
@@ -397,25 +389,5 @@ struct OverlayView: View {
     private func stopJitter() {
         jitterTimer?.invalidate()
         jitterTimer = nil
-    }
-}
-
-// MARK: - Visual Effect View Wrapper (macOS Vibrant Glass)
-
-struct VisualEffectView: NSViewRepresentable {
-    let material: NSVisualEffectView.Material
-    let blendingMode: NSVisualEffectView.BlendingMode
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let visualEffectView = NSVisualEffectView()
-        visualEffectView.material = material
-        visualEffectView.blendingMode = blendingMode
-        visualEffectView.state = .active
-        return visualEffectView
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = material
-        nsView.blendingMode = blendingMode
     }
 }

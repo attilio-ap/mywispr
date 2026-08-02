@@ -1,40 +1,45 @@
 import Cocoa
 
-/// Incolla testo nella finestra attiva in primo piano sul Mac simulando Cmd+V.
-/// Salva e ripristina la clipboard dell'utente.
+/// Pastes text into whatever app currently has focus by simulating Cmd+V.
+///
+/// The user's clipboard is snapshotted before the paste and restored afterwards,
+/// so dictating never destroys what they had copied.
 enum PasteManager {
+
+    /// Delay before sending Cmd+V, giving the pasteboard time to settle.
+    private static let pasteDelay: TimeInterval = 0.05
+
+    /// Delay before restoring the original clipboard. Long enough for the target
+    /// app to have read the pasted text, short enough not to be noticeable.
+    private static let restoreDelay: TimeInterval = 0.3
 
     static func paste(_ text: String) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        // Tutto su main thread: NSPasteboard è main-thread-only
-        assert(Thread.isMainThread, "PasteManager.paste deve essere chiamato sul main thread")
+        // NSPasteboard is main-thread only.
+        assert(Thread.isMainThread, "PasteManager.paste must be called on the main thread")
 
         let pasteboard = NSPasteboard.general
 
-        // 1. Salva il contenuto corrente della clipboard
+        // 1. Save whatever the user currently has on the clipboard.
         let savedContents = snapshotClipboard(pasteboard)
 
-        // 2. Scrivi il testo da incollare
+        // 2. Put our text there instead.
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
 
-        // 3. Aspetta una frazione di secondo affinché la clipboard si aggiorni,
-        //    poi simula ed invia il comando Cmd+V globalmente alla finestra attiva.
-        //    Tempo ridotto a 0.05s per essere veloce ed affidabile.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            self.simulateCmdV()
+        // 3. Send Cmd+V to the focused app.
+        DispatchQueue.main.asyncAfter(deadline: .now() + pasteDelay) {
+            simulateCmdV()
 
-            // 4. Ripristina la clipboard originale dopo 0.3 secondi.
-            //    Questo lasso di tempo consente all'applicazione di leggere
-            //    il testo prima che venga ripristinato il vecchio contenuto.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                self.restoreClipboard(pasteboard, contents: savedContents)
+            // 4. Put the user's clipboard back.
+            DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay) {
+                restoreClipboard(pasteboard, contents: savedContents)
             }
         }
     }
 
-    // MARK: - Privates
+    // MARK: - Private
 
     private static func snapshotClipboard(_ pasteboard: NSPasteboard) -> [(NSPasteboard.PasteboardType, Data)] {
         var snapshot: [(NSPasteboard.PasteboardType, Data)] = []
@@ -55,7 +60,10 @@ enum PasteManager {
         }
     }
 
-    /// Genera la simulazione di Cmd+V inviando l'evento nel flusso globale delle finestre attive.
+    /// Synthesises Cmd+V and posts it to the focused application.
+    ///
+    /// Posting to `.cghidEventTap` is the sanctioned route for this and is what
+    /// the Accessibility permission grants.
     private static func simulateCmdV() {
         let source = CGEventSource(stateID: .privateState)
         let vKeyCode: CGKeyCode = 9 // 'v'
@@ -67,10 +75,8 @@ enum PasteManager {
         keyDown.flags = .maskCommand
         keyUp.flags   = .maskCommand
 
-        // Invia l'evento a livello globale all'applicazione attiva focalizzata (cghidEventTap)
-        // Questo è il metodo ufficiale autorizzato dai permessi di Accessibilità.
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
-        Logger.log("PasteManager: Cmd+V inviato via cghidEventTap.")
+        Logger.log("PasteManager: Cmd+V posted via cghidEventTap.")
     }
 }
