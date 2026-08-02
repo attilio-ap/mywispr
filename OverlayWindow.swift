@@ -132,19 +132,17 @@ struct OverlayView: View {
                     Capsule()
                         .fill(.ultraThinMaterial)  // blur clipped to the capsule shape
                         .overlay(
-                            // Subtle inner white tint for the frosted look
+                            // Defined outer edge — darker than the glass in light
+                            // mode, lighter in dark, so it reads as an edge in both.
                             Capsule()
-                                .fill(Color.white.opacity(0.15))
+                                .stroke(Theme.label.opacity(0.22), lineWidth: 1.0)
                         )
                         .overlay(
-                            // Defined outer edge
+                            // Inner top highlight rim for the 3D glass effect.
+                            // A highlight is light in both appearances, so this one
+                            // stays white by design.
                             Capsule()
-                                .stroke(Color.black.opacity(0.22), lineWidth: 1.0)
-                        )
-                        .overlay(
-                            // Inner top highlight rim for the 3D glass effect
-                            Capsule()
-                                .stroke(Color.white.opacity(0.55), lineWidth: 0.5)
+                                .stroke(Color.white.opacity(0.45), lineWidth: 0.5)
                                 .padding(0.5)
                         )
                 }
@@ -278,9 +276,9 @@ struct OverlayView: View {
         }) {
             Image(systemName: icon)
                 .font(.system(size: 8, weight: .bold))
-                .foregroundColor(isSelected ? .white : .primary)
+                .foregroundColor(isSelected ? Theme.onAccent : Theme.label)
                 .frame(width: 18, height: 18)
-                .background(isSelected ? Color.black : Color.black.opacity(0.06))
+                .background(isSelected ? Theme.accent : Theme.accentMuted)
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)

@@ -83,6 +83,11 @@ need to debug something. The log rotates at 1 MB.
 - The *Translation* preset is directional — it always targets the other language, so it stays useful in both modes.
 - The picker is disabled mid-recording: swapping the recogniser under a live audio tap is not safe.
 
+**Light, dark and Apple materials**
+- The whole interface is built from macOS semantic colours and SwiftUI `Material`, so it follows the system appearance — plus a System / Light / Dark picker in *AI Settings* if you want to override it.
+- Panels are translucent material with continuous-curvature corners and hairline edges; the sidebar uses real `NSVisualEffectView` vibrancy, matching the overlay's glass.
+- The monochrome accent inverts rather than flattening: black-on-white becomes white-on-black.
+
 **Two dictation modes**
 - **Hold-to-talk** — hold the hotkey (default: Right Option), speak, release. Transcribed, cleaned, pasted.
 - **Lock-to-listen** — press the hotkey twice quickly for hands-free continuous dictation. Each pause is transcribed, cleaned, pasted, and the mic restarts automatically. Exit with the hotkey or any left click.
@@ -185,6 +190,7 @@ The `t(_:_:)` helper takes one argument per language, so step 2 is exhaustive by
 | [`main.swift`](main.swift) | `AppDelegate`, window setup, the hold-to-talk / lock-to-listen state machine |
 | [`AppState.swift`](AppState.swift) | Observable shared state and persistence |
 | [`Localization.swift`](Localization.swift) | `AppLanguage` + the full Italian/English string table |
+| [`Theme.swift`](Theme.swift) | Colour/material design tokens, glass panel modifiers, appearance switching |
 | [`KeyboardManager.swift`](KeyboardManager.swift) | Global hotkey via `CGEventTap` on a dedicated thread |
 | [`SpeechManager.swift`](SpeechManager.swift) | Audio capture and `SFSpeechRecognizer` session handling |
 | [`OllamaManager.swift`](OllamaManager.swift) | Local Ollama client and prompt construction |
@@ -198,7 +204,6 @@ The `t(_:_:)` helper takes one argument per language, so step 2 is exhaustive by
 - Apple Silicon only; no Intel build target.
 - The macOS permission prompts follow the **system** language, not the in-app picker — macOS reads them from the bundle before the app runs.
 - Not notarized — Gatekeeper will warn on first launch.
-- The dashboard is light-mode only.
 - Recognition sessions are capped at 55 seconds, after which lock-to-listen restarts automatically.
 - Pasting uses a synthetic Cmd+V, so it will not work in apps that ignore the standard paste shortcut.
 
@@ -252,6 +257,11 @@ Privacy quando serve fare diagnosi. Il file ruota a 1 MB.
 - I prompt non sono la traduzione l'uno dell'altro: ogni set è tarato su come la dettatura sbaglia davvero in quella lingua.
 - Il preset *Traduzione* è direzionale: punta sempre all'altra lingua, quindi resta utile in entrambe le modalità.
 - Il selettore è disabilitato durante la registrazione: cambiare recognizer con un tap audio attivo non è sicuro.
+
+**Chiaro, scuro e materiali Apple**
+- Tutta l'interfaccia usa colori semantici di macOS e `Material` di SwiftUI, quindi segue l'aspetto di sistema — con in più un selettore Sistema / Chiaro / Scuro in *Impostazioni AI*.
+- I pannelli sono materiale traslucido con angoli a curvatura continua e bordi sottilissimi; la barra laterale usa la vera vibrancy di `NSVisualEffectView`, in linea col vetro della notch.
+- L'accento monocromatico si inverte invece di appiattirsi: nero-su-bianco diventa bianco-su-nero.
 
 **Due modalità di dettatura**
 - **Hold-to-talk** — tieni premuto l'hotkey (default: Opzione Destra), parla, rilascia.
@@ -334,7 +344,6 @@ Privacy e Sicurezza*.
 - Solo Apple Silicon, nessun target Intel.
 - Le richieste di permesso di macOS seguono la lingua di **sistema**, non il selettore interno: macOS le legge dal bundle prima che l'app parta.
 - Non notarizzata: Gatekeeper avvisa al primo avvio.
-- Dashboard solo in modalità chiara.
 - Le sessioni di riconoscimento sono limitate a 55 secondi; in lock-to-listen riparte automaticamente.
 - L'incolla usa un Cmd+V sintetico, quindi non funziona nelle app che ignorano la scorciatoia standard.
 

@@ -46,6 +46,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         speechManager = SpeechManager(language: appState.dictationLanguage)
         appState.isOnDeviceRecognition = speechManager.isOnDeviceRecognition
 
+        // Apply the persisted light/dark choice before any window is shown.
+        appState.appearance.apply()
+
         setupOverlayWindow()
         setupDashboardWindow()
         setupCallbacks()
@@ -155,6 +158,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         dashboardWindow.title = "MyWispr"
         dashboardWindow.isReleasedWhenClosed = false
+        // Let the NSVisualEffectView inside the view hierarchy blur what is
+        // behind the window, rather than sitting on an opaque backing.
+        dashboardWindow.titlebarAppearsTransparent = true
+        dashboardWindow.isOpaque = false
+        dashboardWindow.backgroundColor = .clear
         let dashView = DashboardView().environmentObject(appState)
         dashboardWindow.contentView = NSHostingView(rootView: dashView)
         dashboardWindow.center()
@@ -541,14 +549,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func handleRefreshOllamaNotification() {
         refreshOllamaStatus()
     }
-}
-
-// MARK: - Notification Names
-
-extension Notification.Name {
-    static let mywisprStartHotkeyRecording = Notification.Name("mywispr.startHotkeyRecording")
-    static let mywisprToggleDashboard = Notification.Name("mywispr.toggleDashboard")
-    static let mywisprRefreshOllama = Notification.Name("mywispr.refreshOllama")
 }
 
 // MARK: - PassThroughHostingView

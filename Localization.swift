@@ -130,7 +130,7 @@ struct L10n {
     var sidebarPresets: String   { t("Personalizza Preset", "Customise Presets") }
     var sidebarSettings: String  { t("Impostazioni AI", "AI Settings") }
     var sidebarGlossary: String  { t("Glossario Tecnico", "Technical Glossary") }
-    var sidebarAnalytics: String { t("Statistiche & Analytics", "Statistics & Analytics") }
+    var sidebarAnalytics: String { t("Statistiche", "Statistics") }
     var sidebarMonitor: String   { t("Monitor Ollama", "Ollama Monitor") }
     var sidebarOllamaConnected: String { t("Ollama Connesso", "Ollama Connected") }
     var sidebarOllamaOffline: String   { t("Ollama Offline", "Ollama Offline") }
@@ -232,6 +232,22 @@ struct L10n {
     var languageUnsupported: String {
         t("⚠️ Questa lingua non è disponibile per il riconoscimento vocale su questo Mac.",
           "⚠️ This language is not available for speech recognition on this Mac.")
+    }
+
+    // MARK: - Appearance Section
+
+    var appearanceSection: String { t("ASPETTO", "APPEARANCE") }
+    var appearanceLabel: String   { t("Tema dell'interfaccia:", "Interface theme:") }
+    func appearanceName(_ a: AppAppearance) -> String {
+        switch a {
+        case .system: return t("Sistema", "System")
+        case .light:  return t("Chiaro", "Light")
+        case .dark:   return t("Scuro", "Dark")
+        }
+    }
+    var appearanceHint: String {
+        t("«Sistema» segue l'impostazione di macOS. La notch usa sempre il vetro traslucido nativo.",
+          "“System” follows the macOS setting. The notch always uses native translucent glass.")
     }
 
     // MARK: - Privacy Section

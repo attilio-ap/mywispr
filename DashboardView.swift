@@ -9,6 +9,10 @@ struct DashboardView: View {
     /// Stateless client for the local Ollama server, used by the reprocess and pull actions.
     private let ollama = OllamaManager()
 
+    /// Tab selected when the view first appears. Defaults to History; overridable
+    /// so screenshots and previews can target a specific tab.
+    var initialTab: Int = 0
+
     // 0 = History, 1 = Presets, 2 = AI Settings, 3 = Glossary, 4 = Analytics, 5 = Ollama Monitor
     @State private var selectedTab: Int = 0
     
@@ -52,8 +56,9 @@ struct DashboardView: View {
             }
         }
         .frame(width: 820, height: 560)
-        .background(Color(NSColor.windowBackgroundColor))
-        .preferredColorScheme(.light)
+        // Real AppKit vibrancy behind the whole window, so the material panels
+        // above it have something to blur. Follows the system/user appearance.
+        .background(VisualEffectView(material: .windowBackground, blendingMode: .behindWindow).ignoresSafeArea())
         .background(
             VStack {
                 Button(action: {
@@ -69,6 +74,7 @@ struct DashboardView: View {
             .opacity(0)
         )
         .onAppear {
+            selectedTab = initialTab
             state.refreshPermissions()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -83,17 +89,18 @@ struct DashboardView: View {
             // SIDEBAR
             sidebarView
                 .frame(width: 200)
-                .background(Color(white: 0.95))
+                .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow).ignoresSafeArea())
             
-            Divider().background(Color(white: 0.88))
+            Divider().background(Theme.separator)
             
             // DETAIL PANEL
             VStack(spacing: 0) {
                 detailHeader
-                Divider().background(Color(white: 0.9))
+                Divider().background(Theme.separator)
                 
                 ZStack {
-                    Color(white: 0.98).ignoresSafeArea()
+                    // No fill: the panels below float on the window's vibrancy,
+                    // which is what gives the layered Apple look.
                     
                     switch selectedTab {
                     case 0:
@@ -126,10 +133,10 @@ struct DashboardView: View {
             HStack(spacing: 8) {
                 Image(systemName: "waveform.circle.fill")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(.black)
+                    .foregroundColor(Theme.label)
                 Text("MYWISPR FLOW")
                     .font(.system(size: 13, weight: .black))
-                    .foregroundColor(.black)
+                    .foregroundColor(Theme.label)
             }
             .padding(.horizontal, 16)
             .padding(.top, 20)
@@ -152,20 +159,20 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(state.isOllamaConnected ? Color.green : Color.red)
+                        .fill(state.isOllamaConnected ? Theme.success : Theme.danger)
                         .frame(width: 6, height: 6)
                     Text(state.isOllamaConnected ? state.l10n.sidebarOllamaConnected : state.l10n.sidebarOllamaOffline)
                         .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(state.isOllamaConnected ? .green : .red)
+                        .foregroundColor(state.isOllamaConnected ? Theme.success : Theme.danger)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(state.isOllamaConnected ? Color.green.opacity(0.08) : Color.red.opacity(0.08))
+                .background(state.isOllamaConnected ? Theme.success.opacity(0.12) : Theme.danger.opacity(0.12))
                 .cornerRadius(4)
                 
                 Text(state.l10n.sidebarVersion(Bundle.main.appVersion))
                     .font(.system(size: 8))
-                    .foregroundColor(Color(white: 0.6))
+                    .foregroundColor(Theme.tertiaryLabel)
             }
             .padding(16)
         }
@@ -181,18 +188,19 @@ struct DashboardView: View {
             HStack(spacing: 10) {
                 Image(systemName: icon)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(isSelected ? .white : Color(white: 0.35))
+                    .foregroundColor(isSelected ? Theme.onAccent : Theme.label)
                     .frame(width: 16)
                 
                 Text(title)
                     .font(.system(size: 11, weight: isSelected ? .bold : .medium))
-                    .foregroundColor(isSelected ? .white : Color(white: 0.2))
+                    .foregroundColor(isSelected ? Theme.onAccent : Theme.label)
+                    .lineLimit(1)
                 
                 Spacer()
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(isSelected ? Color.black : Color.clear)
+            .background(isSelected ? Theme.accent : Color.clear)
             .cornerRadius(5)
         }
         .buttonStyle(.plain)
@@ -204,12 +212,12 @@ struct DashboardView: View {
         HStack {
             Text(tabTitle(for: selectedTab))
                 .font(.system(size: 14, weight: .black))
-                .foregroundColor(.black)
+                .foregroundColor(Theme.label)
             Spacer()
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
-        .background(Color.white)
+        .background(.bar)
     }
 
     private func tabTitle(for index: Int) -> String {
@@ -234,14 +242,13 @@ struct DashboardView: View {
                 HStack {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 10))
-                        .foregroundColor(.gray)
+                        .foregroundColor(Theme.secondaryLabel)
                     TextField(state.l10n.historySearchPlaceholder, text: $searchHistoryQuery)
                         .textFieldStyle(PlainTextFieldStyle())
                         .font(.system(size: 10))
                 }
                 .padding(6)
-                .background(Color.white)
-                .border(Color(white: 0.9), width: 1)
+                .glassPanel()
                 .padding(.horizontal, 10)
                 .padding(.top, 8)
 
@@ -250,7 +257,7 @@ struct DashboardView: View {
                         Spacer()
                         Text(state.l10n.historyNoRecords)
                             .font(.system(size: 10))
-                            .foregroundColor(.gray)
+                            .foregroundColor(Theme.secondaryLabel)
                         Spacer()
                     }
                     .frame(maxWidth: .infinity)
@@ -261,21 +268,21 @@ struct DashboardView: View {
                                 Text(record.cleanedText)
                                     .font(.system(size: 11, weight: .bold))
                                     .lineLimit(2)
-                                    .foregroundColor(.black)
+                                    .foregroundColor(Theme.label)
                                 
                                 HStack {
                                     Text(record.timestamp, style: .time)
                                         .font(.system(size: 8))
-                                        .foregroundColor(.gray)
+                                        .foregroundColor(Theme.secondaryLabel)
                                     Spacer()
                                     Text(state.l10n.historyWordCount(record.wordCount))
                                         .font(.system(size: 8))
-                                        .foregroundColor(.gray)
+                                        .foregroundColor(Theme.secondaryLabel)
                                 }
                             }
                             .padding(.vertical, 6)
                             .padding(.horizontal, 8)
-                            .background(selectedRecordId == record.id ? Color.black.opacity(0.06) : Color.white)
+                            .background(selectedRecordId == record.id ? Theme.accentMuted : Color.clear)
                             .cornerRadius(4)
                             .onTapGesture {
                                 selectedRecordId = record.id
@@ -286,12 +293,13 @@ struct DashboardView: View {
                         .listRowSeparator(.hidden)
                     }
                     .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
                 }
             }
             .frame(width: 240)
-            .background(Color(white: 0.96))
+            .background(Theme.recessed)
             
-            Divider().background(Color(white: 0.88))
+            Divider().background(Theme.separator)
             
             // Right-hand detail / editor
             ZStack {
@@ -300,34 +308,34 @@ struct DashboardView: View {
                         VStack(alignment: .leading, spacing: 14) {
                             Text("\(state.l10n.historyRecordDetails) (\(record.timestamp, style: .date) \(state.l10n.historyAt) \(record.timestamp, style: .time))")
                                 .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.gray)
+                                .foregroundColor(Theme.secondaryLabel)
 
                             // Original (raw) text
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(state.l10n.historyRawSpeech)
                                     .font(.system(size: 8, weight: .black))
-                                    .foregroundColor(.red)
+                                    .foregroundColor(Theme.danger)
                                 Text(record.rawText.isEmpty ? state.l10n.historySilenceDetected : record.rawText)
                                     .font(.system(size: 10))
-                                    .foregroundColor(Color(white: 0.45))
+                                    .foregroundColor(Theme.secondaryLabel)
                                     .padding(8)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(Color(white: 0.95))
-                                    .border(Color(white: 0.9), width: 1)
+                                    .background(Theme.recessed)
+                                    .overlay(RoundedRectangle(cornerRadius: Theme.panelRadius, style: .continuous).strokeBorder(Theme.hairline, lineWidth: 0.5))
                             }
 
                             // Cleaned-text editor
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(state.l10n.historyEditedText)
                                     .font(.system(size: 8, weight: .black))
-                                    .foregroundColor(.green)
+                                    .foregroundColor(Theme.success)
                                 
                                 TextEditor(text: $editedCleanedText)
                                     .font(.system(size: 11))
                                     .frame(height: 120)
                                     .padding(4)
-                                    .background(Color.white)
-                                    .border(Color(white: 0.85), width: 1)
+                                    .glassPanel()
+                                    .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(Theme.controlStroke, lineWidth: 0.5))
                             }
 
                             // Save / Copy / Delete buttons
@@ -337,10 +345,10 @@ struct DashboardView: View {
                                 }) {
                                     Text(state.l10n.historySaveChanges)
                                         .font(.system(size: 9, weight: .bold))
-                                        .foregroundColor(.white)
+                                        .foregroundColor(Theme.onAccent)
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 6)
-                                        .background(Color.black)
+                                        .background(Theme.accent)
                                         .cornerRadius(3)
                                 }
                                 .buttonStyle(.plain)
@@ -351,24 +359,24 @@ struct DashboardView: View {
                                 }) {
                                     Text(state.l10n.historyCopyClipboard)
                                         .font(.system(size: 9, weight: .bold))
-                                        .foregroundColor(.black)
+                                        .foregroundColor(Theme.label)
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 6)
                                         .background(Color.clear)
-                                        .border(Color.black, width: 1)
+                                        .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(Theme.accent, lineWidth: 1))
                                 }
                                 .buttonStyle(.plain)
                                 
                                 Spacer()
                             }
 
-                            Divider().background(Color(white: 0.9))
+                            Divider().background(Theme.separator)
 
                             // Re-run the text through a different preset
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(state.l10n.historyReprocess)
                                     .font(.system(size: 8, weight: .black))
-                                    .foregroundColor(.black)
+                                    .foregroundColor(Theme.label)
                                 
                                 HStack(spacing: 10) {
                                     Picker("", selection: $selectedReprocessPreset) {
@@ -389,10 +397,10 @@ struct DashboardView: View {
                                             Text(isReprocessing ? state.l10n.historyProcessing : state.l10n.historyApplyPreset)
                                                 .font(.system(size: 9, weight: .bold))
                                         }
-                                        .foregroundColor(.white)
+                                        .foregroundColor(Theme.onAccent)
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 6)
-                                        .background(isReprocessing ? Color.gray : Color.black)
+                                        .background(isReprocessing ? Theme.secondaryLabel : Theme.accent)
                                         .cornerRadius(3)
                                     }
                                     .buttonStyle(.plain)
@@ -400,8 +408,8 @@ struct DashboardView: View {
                                 }
                             }
                             .padding(10)
-                            .background(Color(white: 0.96))
-                            .border(Color(white: 0.95), width: 1)
+                            .background(Theme.recessed)
+                            .overlay(RoundedRectangle(cornerRadius: Theme.panelRadius, style: .continuous).strokeBorder(Theme.hairline, lineWidth: 0.5))
                         }
                         .padding(16)
                     }
@@ -409,10 +417,10 @@ struct DashboardView: View {
                     VStack {
                         Image(systemName: "doc.text.magnifyingglass")
                             .font(.system(size: 24))
-                            .foregroundColor(.gray)
+                            .foregroundColor(Theme.secondaryLabel)
                         Text(state.l10n.historyEmptySelection)
                             .font(.system(size: 10))
-                            .foregroundColor(.gray)
+                            .foregroundColor(Theme.secondaryLabel)
                     }
                 }
             }
@@ -465,34 +473,33 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(state.l10n.presetsYourCustom)
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(Color(white: 0.45))
+                    .foregroundColor(Theme.secondaryLabel)
                 
                 if state.customPresets.isEmpty {
                     VStack {
                         Text(state.l10n.presetsEmpty)
                             .font(.system(size: 10))
-                            .foregroundColor(.gray)
+                            .foregroundColor(Theme.secondaryLabel)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(20)
-                    .background(Color.white)
-                    .border(Color(white: 0.9), width: 1)
+                    .glassPanel()
                 } else {
                     List {
                         ForEach(state.customPresets) { preset in
                             HStack {
                                 Image(systemName: preset.icon)
                                     .font(.system(size: 12))
-                                    .foregroundColor(.black)
+                                    .foregroundColor(Theme.label)
                                     .frame(width: 20)
                                 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(preset.name)
                                         .font(.system(size: 11, weight: .bold))
-                                        .foregroundColor(.black)
+                                        .foregroundColor(Theme.label)
                                     Text(preset.systemPrompt)
                                         .font(.system(size: 9))
-                                        .foregroundColor(.gray)
+                                        .foregroundColor(Theme.secondaryLabel)
                                         .lineLimit(1)
                                 }
                                 
@@ -501,7 +508,7 @@ struct DashboardView: View {
                                 HStack(spacing: 12) {
                                     Text(state.l10n.presetsTemp(preset.temperature))
                                         .font(.system(size: 9))
-                                        .foregroundColor(.gray)
+                                        .foregroundColor(Theme.secondaryLabel)
                                     
                                     Button(action: {
                                         // Apply the prompt and temperature, activating it as the custom preset
@@ -512,10 +519,10 @@ struct DashboardView: View {
                                     }) {
                                         Text(state.l10n.presetsActivate)
                                             .font(.system(size: 8, weight: .bold))
-                                            .foregroundColor(.white)
+                                            .foregroundColor(Theme.onAccent)
                                             .padding(.horizontal, 8)
                                             .padding(.vertical, 3)
-                                            .background(Color.black)
+                                            .background(Theme.accent)
                                             .cornerRadius(2)
                                     }
                                     .buttonStyle(.plain)
@@ -525,32 +532,33 @@ struct DashboardView: View {
                                     }) {
                                         Image(systemName: "trash")
                                             .font(.system(size: 10))
-                                            .foregroundColor(.red)
+                                            .foregroundColor(Theme.danger)
                                     }
                                     .buttonStyle(.plain)
                                 }
                             }
                             .padding(.vertical, 4)
                             .listRowInsets(EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 10))
-                            .listRowBackground(Color.white)
+                            .listRowBackground(Color.clear)
                         }
                     }
                     .listStyle(.plain)
-                    .border(Color(white: 0.9), width: 1)
+                    .scrollContentBackground(.hidden)
+                    .overlay(RoundedRectangle(cornerRadius: Theme.panelRadius, style: .continuous).strokeBorder(Theme.hairline, lineWidth: 0.5))
                     .frame(height: 180)
                 }
             }
             .padding(.horizontal, 20)
             .padding(.top, 10)
             
-            Divider().background(Color(white: 0.9)).padding(.horizontal, 20)
+            Divider().background(Theme.separator).padding(.horizontal, 20)
 
             // Add-preset form
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text(state.l10n.presetsCreateNew)
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(Color(white: 0.45))
+                        .foregroundColor(Theme.secondaryLabel)
                     Spacer()
                 }
 
@@ -558,8 +566,7 @@ struct DashboardView: View {
                     TextField(state.l10n.presetsNamePlaceholder, text: $newPresetName)
                         .textFieldStyle(PlainTextFieldStyle())
                         .padding(6)
-                        .background(Color.white)
-                        .border(Color(white: 0.8), width: 1)
+                        .glassField()
                         .font(.system(size: 10))
                     
                     Picker(state.l10n.presetsIconLabel, selection: $newPresetIcon) {
@@ -577,7 +584,7 @@ struct DashboardView: View {
                     TextEditor(text: $newPresetPrompt)
                         .font(.system(size: 10))
                         .frame(height: 60)
-                        .border(Color(white: 0.8), width: 1)
+                        .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(Theme.controlStroke, lineWidth: 0.5))
                         .cornerRadius(2)
                 }
 
@@ -597,18 +604,17 @@ struct DashboardView: View {
                     }) {
                         Text(state.l10n.presetsSave)
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.onAccent)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 6)
-                            .background(Color.black)
+                            .background(Theme.accent)
                             .cornerRadius(3)
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(14)
-            .background(Color.white)
-            .border(Color(white: 0.9), width: 1)
+            .glassPanel()
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
         }
@@ -623,7 +629,7 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(state.l10n.settingsHotkeySection)
                         .font(.system(size: 10, weight: .black))
-                        .foregroundColor(Color(white: 0.4))
+                        .foregroundColor(Theme.secondaryLabel)
                     
                     HStack(spacing: 12) {
                         Button(action: {
@@ -631,60 +637,60 @@ struct DashboardView: View {
                         }) {
                             Text(state.isRecordingHotkey ? state.l10n.settingsPressAKey : state.l10n.keyName(for: state.hotkeyKeyCode).uppercased())
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(state.isRecordingHotkey ? .red : .white)
+                                .foregroundColor(state.isRecordingHotkey ? Theme.danger : Theme.onAccent)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 7)
-                                .background(state.isRecordingHotkey ? Color.red.opacity(0.1) : Color.black)
-                                .border(state.isRecordingHotkey ? Color.red : Color.black, width: 1.5)
+                                .background(state.isRecordingHotkey ? Theme.danger.opacity(0.12) : Theme.accent,
+                                            in: RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(state.isRecordingHotkey ? Theme.danger : Theme.accent, lineWidth: 1.5))
                         }
                         .buttonStyle(.plain)
                         
                         VStack(alignment: .leading, spacing: 2) {
                             Text(state.l10n.settingsHoldToTalk)
                                 .font(.system(size: 9))
-                                .foregroundColor(Color(white: 0.5))
+                                .foregroundColor(Theme.secondaryLabel)
                             Text(state.l10n.settingsLockToListen)
                                 .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(Color(white: 0.4))
+                                .foregroundColor(Theme.secondaryLabel)
                         }
                     }
                     
                     if let rejection = state.hotkeyRejectionMessage {
                         Text(rejection)
                             .font(.system(size: 9))
-                            .foregroundColor(.red)
+                            .foregroundColor(Theme.danger)
                     }
                 }
                 .padding(12)
-                .background(Color.white)
-                .border(Color(white: 0.9), width: 1)
+                .glassPanel()
                 
                 // Model configuration
                 VStack(alignment: .leading, spacing: 10) {
                     Text(state.l10n.settingsModelSection)
                         .font(.system(size: 10, weight: .black))
-                        .foregroundColor(Color(white: 0.4))
+                        .foregroundColor(Theme.secondaryLabel)
                     
                     if state.availableOllamaModels.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(state.l10n.settingsNoModelDetected)
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.orange)
+                                .foregroundColor(Theme.warning)
                             Text(state.l10n.settingsNoModelHint)
                                 .font(.system(size: 9))
-                                .foregroundColor(Color(white: 0.5))
+                                .foregroundColor(Theme.secondaryLabel)
                             
                             TextField(state.l10n.settingsManualModel, text: $state.ollamaModelName)
                                 .textFieldStyle(PlainTextFieldStyle())
                                 .padding(6)
-                                .border(Color.black, width: 1)
+                                .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(Theme.accent, lineWidth: 1))
                                 .font(.system(size: 10))
                         }
                     } else {
                         HStack {
                             Text(state.l10n.settingsActiveModel)
                                 .font(.system(size: 10))
-                                .foregroundColor(Color(white: 0.45))
+                                .foregroundColor(Theme.secondaryLabel)
                             
                             Picker("", selection: $state.ollamaModelName) {
                                 ForEach(state.availableOllamaModels, id: \.self) { name in
@@ -705,7 +711,7 @@ struct DashboardView: View {
                             Spacer()
                             Text(state.temperature <= 0.2 ? state.l10n.settingsTempLiteral : (state.temperature >= 0.7 ? state.l10n.settingsTempCreative : state.l10n.settingsTempBalanced))
                                 .font(.system(size: 8))
-                                .foregroundColor(.gray)
+                                .foregroundColor(Theme.secondaryLabel)
                         }
                         
                         Slider(value: $state.temperature, in: 0.0...1.0, step: 0.1)
@@ -714,14 +720,13 @@ struct DashboardView: View {
                     .padding(.top, 4)
                 }
                 .padding(12)
-                .background(Color.white)
-                .border(Color(white: 0.9), width: 1)
+                .glassPanel()
                 
                 // Built-in transcription presets
                 VStack(alignment: .leading, spacing: 10) {
                     Text(state.l10n.settingsBasePresets)
                         .font(.system(size: 10, weight: .black))
-                        .foregroundColor(Color(white: 0.4))
+                        .foregroundColor(Theme.secondaryLabel)
                     
                     Picker(state.l10n.settingsActivePreset, selection: $state.aiPreset) {
                         ForEach(AIPreset.allCases.filter { $0 != .custom }, id: \.self) { preset in
@@ -731,19 +736,18 @@ struct DashboardView: View {
                     .font(.system(size: 10))
                 }
                 .padding(12)
-                .background(Color.white)
-                .border(Color(white: 0.9), width: 1)
+                .glassPanel()
                 
                 // Language: one picker drives both the recognition locale and the UI.
                 VStack(alignment: .leading, spacing: 10) {
                     Text(state.l10n.languageSection)
                         .font(.system(size: 10, weight: .black))
-                        .foregroundColor(Color(white: 0.4))
+                        .foregroundColor(Theme.secondaryLabel)
 
                     HStack(spacing: 12) {
                         Text(state.l10n.languageLabel)
                             .font(.system(size: 10))
-                            .foregroundColor(Color(white: 0.45))
+                            .foregroundColor(Theme.secondaryLabel)
 
                         Picker("", selection: languageBinding) {
                             ForEach(AppLanguage.allCases) { lang in
@@ -762,39 +766,68 @@ struct DashboardView: View {
 
                     Text(state.isRecording ? state.l10n.languageBusyWarning : state.l10n.languageHint)
                         .font(.system(size: 9))
-                        .foregroundColor(state.isRecording ? .orange : Color(white: 0.5))
+                        .foregroundColor(state.isRecording ? Theme.warning : Theme.secondaryLabel)
 
                     if !SpeechManager.isSupported(state.dictationLanguage) {
                         Text(state.l10n.languageUnsupported)
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.orange)
+                            .foregroundColor(Theme.warning)
                     }
                 }
                 .padding(12)
-                .background(Color.white)
-                .border(Color(white: 0.9), width: 1)
+                .glassPanel()
+
+                // Appearance: light / dark / follow the system.
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(state.l10n.appearanceSection)
+                        .font(.system(size: 10, weight: .black))
+                        .foregroundColor(Theme.secondaryLabel)
+
+                    HStack(spacing: 12) {
+                        Text(state.l10n.appearanceLabel)
+                            .font(.system(size: 10))
+                            .foregroundColor(Theme.secondaryLabel)
+
+                        Picker("", selection: $state.appearance) {
+                            ForEach(AppAppearance.allCases) { mode in
+                                Text(state.l10n.appearanceName(mode)).tag(mode)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(width: 220)
+
+                        Spacer()
+                    }
+
+                    Text(state.l10n.appearanceHint)
+                        .font(.system(size: 9))
+                        .foregroundColor(Theme.secondaryLabel)
+                }
+                .padding(12)
+                .glassPanel()
 
                 // Privacy: report what actually happens to the audio and the text,
                 // rather than a blanket "everything is local" claim.
                 VStack(alignment: .leading, spacing: 10) {
                     Text(state.l10n.privacySection)
                         .font(.system(size: 10, weight: .black))
-                        .foregroundColor(Color(white: 0.4))
+                        .foregroundColor(Theme.secondaryLabel)
 
                     HStack(spacing: 6) {
                         Image(systemName: state.isOnDeviceRecognition ? "lock.fill" : "cloud.fill")
                             .font(.system(size: 10))
-                            .foregroundColor(state.isOnDeviceRecognition ? .green : .orange)
+                            .foregroundColor(state.isOnDeviceRecognition ? Theme.success : Theme.warning)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(state.isOnDeviceRecognition
                                  ? state.l10n.privacyOnDevice
                                  : state.l10n.privacyServerBased)
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(state.isOnDeviceRecognition ? .green : .orange)
+                                .foregroundColor(state.isOnDeviceRecognition ? Theme.success : Theme.warning)
                             if !state.isOnDeviceRecognition {
                                 Text(state.l10n.privacyServerHint)
                                     .font(.system(size: 9))
-                                    .foregroundColor(Color(white: 0.5))
+                                    .foregroundColor(Theme.secondaryLabel)
                             }
                         }
                     }
@@ -802,10 +835,10 @@ struct DashboardView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "cpu")
                             .font(.system(size: 10))
-                            .foregroundColor(.green)
+                            .foregroundColor(Theme.success)
                         Text(state.l10n.privacyLocalAI)
                             .font(.system(size: 10))
-                            .foregroundColor(Color(white: 0.35))
+                            .foregroundColor(Theme.label)
                     }
 
                     Divider()
@@ -816,7 +849,7 @@ struct DashboardView: View {
                                 .font(.system(size: 10, weight: .bold))
                             Text(state.l10n.privacyVerboseHint)
                                 .font(.system(size: 9))
-                                .foregroundColor(Color(white: 0.5))
+                                .foregroundColor(Theme.secondaryLabel)
                         }
                     }
                     .toggleStyle(.switch)
@@ -824,24 +857,23 @@ struct DashboardView: View {
                     HStack(spacing: 8) {
                         Text(Logger.logURL.path)
                             .font(.system(size: 8, design: .monospaced))
-                            .foregroundColor(Color(white: 0.55))
+                            .foregroundColor(Theme.secondaryLabel)
                             .lineLimit(1)
                             .truncationMode(.head)
                         Spacer()
                         Button(action: { Logger.clear() }) {
                             Text(state.l10n.privacyClearLog)
                                 .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(Color(white: 0.35))
+                                .foregroundColor(Theme.label)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
-                                .border(Color(white: 0.8), width: 1)
+                                .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(Theme.controlStroke, lineWidth: 0.5))
                         }
                         .buttonStyle(.plain)
                     }
                 }
                 .padding(12)
-                .background(Color.white)
-                .border(Color(white: 0.9), width: 1)
+                .glassPanel()
 
                 // System permission badges
                 HStack(spacing: 12) {
@@ -860,16 +892,15 @@ struct DashboardView: View {
     private func permissionBadge(label: String, granted: Bool) -> some View {
         HStack(spacing: 4) {
             Circle()
-                .fill(granted ? Color.green : Color.red)
+                .fill(granted ? Theme.success : Theme.danger)
                 .frame(width: 6, height: 6)
             Text(label)
                 .font(.system(size: 8, weight: .bold))
-                .foregroundColor(Color(white: 0.45))
+                .foregroundColor(Theme.secondaryLabel)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(Color.white)
-        .border(Color(white: 0.9), width: 1)
+        .glassPanel()
     }
 
     // MARK: - Tab 3: Technical Glossary
@@ -880,25 +911,23 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(state.l10n.glossaryAddRule)
                     .font(.system(size: 10, weight: .black))
-                    .foregroundColor(Color(white: 0.4))
+                    .foregroundColor(Theme.secondaryLabel)
                 
                 HStack(spacing: 8) {
                     TextField(state.l10n.glossaryRawPlaceholder, text: $newWord)
                         .textFieldStyle(PlainTextFieldStyle())
                         .padding(6)
-                        .background(Color.white)
-                        .border(Color(white: 0.8), width: 1)
+                        .glassField()
                         .font(.system(size: 10))
                     
                     Image(systemName: "arrow.right")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.gray)
+                        .foregroundColor(Theme.secondaryLabel)
                     
                     TextField(state.l10n.glossaryReplacementPlaceholder, text: $newReplacement)
                         .textFieldStyle(PlainTextFieldStyle())
                         .padding(6)
-                        .background(Color.white)
-                        .border(Color(white: 0.8), width: 1)
+                        .glassField()
                         .font(.system(size: 10))
                     
                     Button(action: {
@@ -908,18 +937,17 @@ struct DashboardView: View {
                     }) {
                         Text(state.l10n.glossaryAdd)
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.onAccent)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
-                            .background(Color.black)
+                            .background(Theme.accent)
                             .cornerRadius(3)
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(14)
-            .background(Color.white)
-            .border(Color(white: 0.9), width: 1)
+            .glassPanel()
             .padding(.horizontal, 20)
             .padding(.top, 12)
             
@@ -928,49 +956,47 @@ struct DashboardView: View {
                 HStack {
                     Text(state.l10n.glossaryActiveRules(state.glossary.count))
                         .font(.system(size: 10, weight: .black))
-                        .foregroundColor(Color(white: 0.45))
+                        .foregroundColor(Theme.secondaryLabel)
                     
                     Spacer()
                     
                     // Rule search
                     HStack {
-                        Image(systemName: "magnifyingglass").font(.system(size: 9)).foregroundColor(.gray)
+                        Image(systemName: "magnifyingglass").font(.system(size: 9)).foregroundColor(Theme.secondaryLabel)
                         TextField(state.l10n.glossarySearchPlaceholder, text: $searchGlossaryQuery)
                             .textFieldStyle(PlainTextFieldStyle())
                             .font(.system(size: 9))
                             .frame(width: 140)
                     }
                     .padding(4)
-                    .background(Color.white)
-                    .border(Color(white: 0.9), width: 1)
+                    .glassPanel()
                 }
                 
                 if filteredGlossary.isEmpty {
                     VStack {
                         Text(state.l10n.glossaryEmpty)
                             .font(.system(size: 10))
-                            .foregroundColor(.gray)
+                            .foregroundColor(Theme.secondaryLabel)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.white)
-                    .border(Color(white: 0.9), width: 1)
+                    .glassPanel()
                 } else {
                     List {
                         ForEach(filteredGlossary.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
                             HStack {
                                 Text(key)
                                     .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(.red)
+                                    .foregroundColor(Theme.danger)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 
                                 Image(systemName: "arrow.right")
                                     .font(.system(size: 9))
-                                    .foregroundColor(.gray)
+                                    .foregroundColor(Theme.secondaryLabel)
                                     .frame(width: 20)
                                 
                                 Text(value)
                                     .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(.green)
+                                    .foregroundColor(Theme.success)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 
                                 Button(action: {
@@ -978,18 +1004,19 @@ struct DashboardView: View {
                                 }) {
                                     Image(systemName: "trash")
                                         .font(.system(size: 10))
-                                        .foregroundColor(.red)
+                                        .foregroundColor(Theme.danger)
                                         .padding(4)
                                 }
                                 .buttonStyle(.plain)
                             }
                             .padding(.vertical, 2)
                             .listRowInsets(EdgeInsets(top: 2, leading: 10, bottom: 2, trailing: 10))
-                            .listRowBackground(Color.white)
+                            .listRowBackground(Color.clear)
                         }
                     }
                     .listStyle(.plain)
-                    .border(Color(white: 0.9), width: 1)
+                    .scrollContentBackground(.hidden)
+                    .overlay(RoundedRectangle(cornerRadius: Theme.panelRadius, style: .continuous).strokeBorder(Theme.hairline, lineWidth: 0.5))
                 }
             }
             .frame(maxHeight: .infinity)
@@ -1026,18 +1053,17 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(state.l10n.analyticsChartTitle)
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(Color(white: 0.45))
+                        .foregroundColor(Theme.secondaryLabel)
                     
                     if dailyChartData.isEmpty {
                         VStack {
                             Text(state.l10n.analyticsChartEmpty)
                                 .font(.system(size: 10))
-                                .foregroundColor(.gray)
+                                .foregroundColor(Theme.secondaryLabel)
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 160)
-                        .background(Color.white)
-                        .border(Color(white: 0.9), width: 1)
+                        .glassPanel()
                     } else {
                         Chart {
                             ForEach(dailyChartData) { data in
@@ -1045,14 +1071,13 @@ struct DashboardView: View {
                                     x: .value(state.l10n.analyticsAxisDay, data.dayLabel),
                                     y: .value(state.l10n.analyticsAxisWords, data.words)
                                 )
-                                .foregroundStyle(Color.black)
+                                .foregroundStyle(Theme.accent)
                                 .cornerRadius(3)
                             }
                         }
                         .frame(height: 160)
                         .padding(14)
-                        .background(Color.white)
-                        .border(Color(white: 0.9), width: 1)
+                        .glassPanel()
                     }
                 }
                 
@@ -1060,17 +1085,16 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(state.l10n.analyticsDetailed)
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(Color(white: 0.45))
+                        .foregroundColor(Theme.secondaryLabel)
                     
                     VStack(spacing: 0) {
                         statRow(label: state.l10n.analyticsTotalTranscriptions, value: "\(state.transcriptionHistory.count)")
-                        Divider().background(Color(white: 0.95))
+                        Divider().background(Theme.separator)
                         statRow(label: state.l10n.analyticsAverageLength, value: state.l10n.analyticsWordsValue(Double(state.totalWords) / max(1.0, Double(state.transcriptionHistory.count))))
-                        Divider().background(Color(white: 0.95))
+                        Divider().background(Theme.separator)
                         statRow(label: state.l10n.analyticsPreferredModel, value: state.ollamaModelName)
                     }
-                    .background(Color.white)
-                    .border(Color(white: 0.9), width: 1)
+                    .glassPanel()
                 }
             }
             .padding(.horizontal, 20)
@@ -1082,30 +1106,29 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.system(size: 8, weight: .bold))
-                .foregroundColor(Color(white: 0.55))
+                .foregroundColor(Theme.secondaryLabel)
             Text(value)
                 .font(.system(size: 16, weight: .black))
-                .foregroundColor(.black)
+                .foregroundColor(Theme.label)
                 .lineLimit(1)
             Text(subtitle)
                 .font(.system(size: 8))
-                .foregroundColor(Color(white: 0.6))
+                .foregroundColor(Theme.tertiaryLabel)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(Color.white)
-        .border(Color(white: 0.9), width: 1)
+        .glassPanel()
     }
 
     private func statRow(label: String, value: String) -> some View {
         HStack {
             Text(label)
                 .font(.system(size: 10))
-                .foregroundColor(Color(white: 0.35))
+                .foregroundColor(Theme.label)
             Spacer()
             Text(value)
                 .font(.system(size: 10, weight: .bold))
-                .foregroundColor(.black)
+                .foregroundColor(Theme.label)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -1164,17 +1187,17 @@ struct DashboardView: View {
                     HStack {
                         Text(state.l10n.monitorRunningModels)
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(Color(white: 0.45))
+                            .foregroundColor(Theme.secondaryLabel)
                         Spacer()
                         Button(action: {
                             NotificationCenter.default.post(name: .mywisprRefreshOllama, object: nil)
                         }) {
                             Text(state.l10n.monitorRefresh)
                                 .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(Color(white: 0.35))
+                                .foregroundColor(Theme.label)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
-                                .border(Color(white: 0.8), width: 1)
+                                .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(Theme.controlStroke, lineWidth: 0.5))
                         }
                         .buttonStyle(.plain)
                     }
@@ -1189,21 +1212,20 @@ struct DashboardView: View {
                                 HStack {
                                     Image(systemName: "cpu.fill")
                                         .font(.system(size: 12))
-                                        .foregroundColor(.green)
+                                        .foregroundColor(Theme.success)
                                     Text(name)
                                         .font(.system(size: 11, weight: .bold))
-                                        .foregroundColor(.black)
+                                        .foregroundColor(Theme.label)
                                     Spacer()
                                     Text(state.l10n.monitorInMemory)
                                         .font(.system(size: 9))
-                                        .foregroundColor(.gray)
+                                        .foregroundColor(Theme.secondaryLabel)
                                 }
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 10)
                             }
                         }
-                        .background(Color.white)
-                        .border(Color(white: 0.9), width: 1)
+                        .glassPanel()
                     }
                 }
 
@@ -1211,7 +1233,7 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(state.l10n.monitorInstalled)
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(Color(white: 0.45))
+                        .foregroundColor(Theme.secondaryLabel)
 
                     if state.availableOllamaModels.isEmpty {
                         monitorPlaceholder(state.l10n.monitorNoneInstalled, color: .gray)
@@ -1221,26 +1243,25 @@ struct DashboardView: View {
                                 HStack {
                                     Image(systemName: "internaldrive")
                                         .font(.system(size: 11))
-                                        .foregroundColor(Color(white: 0.45))
+                                        .foregroundColor(Theme.secondaryLabel)
                                     Text(name)
                                         .font(.system(size: 11))
-                                        .foregroundColor(.black)
+                                        .foregroundColor(Theme.label)
                                     Spacer()
                                     if name == state.ollamaModelName {
                                         Text(state.l10n.monitorInUse)
                                             .font(.system(size: 8, weight: .bold))
-                                            .foregroundColor(.white)
+                                            .foregroundColor(Theme.onAccent)
                                             .padding(.horizontal, 6)
                                             .padding(.vertical, 2)
-                                            .background(Color.black)
+                                            .background(Theme.accent)
                                     }
                                 }
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
                             }
                         }
-                        .background(Color.white)
-                        .border(Color(white: 0.9), width: 1)
+                        .glassPanel()
                     }
                 }
                 
@@ -1248,18 +1269,17 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(state.l10n.monitorDownloadSection)
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(Color(white: 0.45))
+                        .foregroundColor(Theme.secondaryLabel)
                     
                     Text(state.l10n.monitorDownloadHint)
                         .font(.system(size: 9))
-                        .foregroundColor(.gray)
+                        .foregroundColor(Theme.secondaryLabel)
                     
                     HStack(spacing: 12) {
                         TextField(state.l10n.monitorDownloadPlaceholder, text: $pullModelName)
                             .textFieldStyle(PlainTextFieldStyle())
                             .padding(6)
-                            .background(Color.white)
-                            .border(Color(white: 0.8), width: 1)
+                            .glassField()
                             .font(.system(size: 10))
                             .disabled(isPulling)
                         
@@ -1273,10 +1293,10 @@ struct DashboardView: View {
                                 Text(isPulling ? state.l10n.monitorDownloading : state.l10n.monitorDownload)
                                     .font(.system(size: 9, weight: .bold))
                             }
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.onAccent)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
-                            .background(isPulling ? Color.gray : Color.black)
+                            .background(isPulling ? Theme.secondaryLabel : Theme.accent)
                             .cornerRadius(3)
                         }
                         .buttonStyle(.plain)
@@ -1286,13 +1306,12 @@ struct DashboardView: View {
                     if !pullStatusMessage.isEmpty {
                         Text(pullStatusMessage)
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.orange)
+                            .foregroundColor(Theme.warning)
                             .padding(.top, 2)
                     }
                 }
                 .padding(12)
-                .background(Color.white)
-                .border(Color(white: 0.9), width: 1)
+                .glassPanel()
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
@@ -1315,8 +1334,7 @@ struct DashboardView: View {
             .foregroundColor(color)
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .center)
-            .background(Color.white)
-            .border(Color(white: 0.9), width: 1)
+            .glassPanel()
     }
 
     private func pullModelFromRegistry() {
@@ -1348,15 +1366,15 @@ struct DashboardView: View {
             VStack(spacing: 8) {
                 Image(systemName: "waveform.circle.fill")
                     .font(.system(size: 42))
-                    .foregroundColor(.black)
+                    .foregroundColor(Theme.label)
                 
                 Text(state.l10n.onboardingWelcome)
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(.black)
+                    .foregroundColor(Theme.label)
                 
                 Text(state.l10n.onboardingIntro)
                     .font(.system(size: 11))
-                    .foregroundColor(Color(white: 0.45))
+                    .foregroundColor(Theme.secondaryLabel)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
             }
@@ -1433,10 +1451,10 @@ struct DashboardView: View {
                 }) {
                     Text(state.l10n.onboardingProceed)
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.onAccent)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 8)
-                        .background(Color.black)
+                        .background(Theme.accent)
                         .cornerRadius(4)
                 }
                 .buttonStyle(.plain)
@@ -1445,22 +1463,22 @@ struct DashboardView: View {
                 VStack(spacing: 8) {
                     Text(state.l10n.onboardingEnableAll)
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(.orange)
+                        .foregroundColor(Theme.warning)
                     
                     Text(state.l10n.onboardingRestartNote)
                         .font(.system(size: 8))
-                        .foregroundColor(.gray)
+                        .foregroundColor(Theme.secondaryLabel)
                     
                     Button(action: {
                         relaunchApp()
                     }) {
                         Text(state.l10n.onboardingRelaunch)
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.black)
+                            .foregroundColor(Theme.label)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 5)
-                            .background(Color.white)
-                            .border(Color.black, width: 1)
+                            .glassPanel()
+                            .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(Theme.accent, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                 }
@@ -1468,26 +1486,26 @@ struct DashboardView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(white: 0.98))
+        .background(Theme.recessed)
     }
     
     private func onboardingStep(icon: String, title: String, description: String, granted: Bool, action: @escaping () -> Void) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 16))
-                .foregroundColor(granted ? .green : .gray)
+                .foregroundColor(granted ? Theme.success : Theme.secondaryLabel)
                 .frame(width: 24, height: 24)
-                .background(granted ? Color.green.opacity(0.08) : Color(white: 0.92))
+                .background(granted ? Theme.success.opacity(0.12) : Theme.accentMuted)
                 .clipShape(Circle())
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(.black)
+                    .foregroundColor(Theme.label)
                 
                 Text(description)
                     .font(.system(size: 9))
-                    .foregroundColor(Color(white: 0.5))
+                    .foregroundColor(Theme.secondaryLabel)
             }
             
             Spacer()
@@ -1495,28 +1513,27 @@ struct DashboardView: View {
             if granted {
                 HStack(spacing: 4) {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
+                        .foregroundColor(Theme.success)
                         .font(.system(size: 11))
                     Text(state.l10n.onboardingGranted)
                         .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(.green)
+                        .foregroundColor(Theme.success)
                 }
             } else {
                 Button(action: action) {
                     Text(state.l10n.onboardingGrant)
                         .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.onAccent)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(Color.black)
+                        .background(Theme.accent)
                         .cornerRadius(3)
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(10)
-        .background(Color.white)
-        .border(Color(white: 0.9), width: 1)
+        .glassPanel()
     }
 
     private func formatTime(_ secs: Double) -> String {

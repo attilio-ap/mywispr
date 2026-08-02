@@ -103,6 +103,17 @@ final class AppState: ObservableObject {
     /// SwiftUI re-renders the whole dashboard.
     @Published private(set) var l10n: L10n = L10n(.italian)
 
+    // MARK: - Appearance
+
+    /// Light / dark / follow-the-system. Applied to `NSApp` on change.
+    @Published var appearance: AppAppearance = .system {
+        didSet {
+            guard appearance != oldValue else { return }
+            appearance.apply()
+            UserDefaults.standard.set(appearance.rawValue, forKey: "mw_appearance")
+        }
+    }
+
     private var permissionPollTimer: Timer?
 
     init() {
@@ -268,6 +279,7 @@ final class AppState: ObservableObject {
         UserDefaults.standard.set(verboseLogging, forKey: Logger.verboseDefaultsKey)
         UserDefaults.standard.set(dictationLanguage.rawValue, forKey: "mw_dictation_language")
         UserDefaults.standard.set(uiLanguage.rawValue, forKey: "mw_ui_language")
+        UserDefaults.standard.set(appearance.rawValue, forKey: "mw_appearance")
 
         if let presetData = try? JSONEncoder().encode(aiPreset) {
             UserDefaults.standard.set(presetData, forKey: "mw_preset")
@@ -305,6 +317,11 @@ final class AppState: ObservableObject {
         l10n = L10n(uiLanguage)
         glossary = dictationLanguage.defaultGlossary
 
+        if let raw = UserDefaults.standard.string(forKey: "mw_appearance"),
+           let a = AppAppearance(rawValue: raw) {
+            appearance = a
+        }
+
         let savedKey = UserDefaults.standard.integer(forKey: "mw_hotkey")
         if savedKey > 0 {
             hotkeyKeyCode = CGKeyCode(savedKey)
@@ -335,6 +352,16 @@ final class AppState: ObservableObject {
             customPresets = decodedPresets
         }
     }
+}
+
+// MARK: - Notification Names
+
+/// Cross-component signals. Declared here rather than in `main.swift` so views
+/// and tools can compile without pulling in the app entry point.
+extension Notification.Name {
+    static let mywisprStartHotkeyRecording = Notification.Name("mywispr.startHotkeyRecording")
+    static let mywisprToggleDashboard = Notification.Name("mywispr.toggleDashboard")
+    static let mywisprRefreshOllama = Notification.Name("mywispr.refreshOllama")
 }
 
 // MARK: - Data Model
