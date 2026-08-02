@@ -38,8 +38,10 @@ final class SpeechManager {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
-    private var lastTranscript = ""
     private var tapInstalled = false
+
+    /// Text accumulated across this user-level session.
+    private var transcript = TranscriptAccumulator()
 
     /// Set when the caller explicitly asks to stop (key up).
     ///
@@ -149,7 +151,7 @@ final class SpeechManager {
         cancelCurrentTask()
 
         stopRequested = false
-        lastTranscript = ""
+        transcript.reset()
 
         startRecognitionTask(with: recognizer)
 
@@ -199,7 +201,7 @@ final class SpeechManager {
         finalizeTimer = nil
         maxDurationTimer?.invalidate()
         maxDurationTimer = nil
-        lastTranscript = ""
+        transcript.reset()
         cancelCurrentTask()
     }
 
@@ -212,7 +214,11 @@ final class SpeechManager {
     private func restartRecognitionSession() {
         guard audioEngine.isRunning, !stopRequested else { return }
         guard let recognizer = speechRecognizer, recognizer.isAvailable else { return }
-        Logger.log("Restarting SFSpeech recognition session (audio engine still active).")
+
+        // Keep what has already been said: the replacement task starts its own
+        // transcription from scratch and would otherwise wipe it.
+        transcript.commitCurrent()
+        Logger.log("Restarting SFSpeech recognition session (audio engine still active, \(transcript.committed.count) chars carried over).")
 
         recognitionTask?.cancel()
         recognitionTask = nil
@@ -235,11 +241,11 @@ final class SpeechManager {
             guard let self else { return }
 
             if let result {
-                let text = result.bestTranscription.formattedString
-                self.lastTranscript = text
+                self.transcript.current = result.bestTranscription.formattedString
+                let combined = self.transcript.full
 
                 DispatchQueue.main.async {
-                    self.onPartialTranscript?(text)
+                    self.onPartialTranscript?(combined)
                 }
 
                 if result.isFinal {
@@ -328,8 +334,8 @@ final class SpeechManager {
         maxDurationTimer?.invalidate()
         maxDurationTimer = nil
 
-        let text = lastTranscript
-        lastTranscript = ""
+        let text = transcript.full
+        transcript.reset()
         stopRequested = false
         cancelCurrentTask()
 
@@ -364,5 +370,51 @@ final class SpeechManager {
             audioEngine.stop()
         }
         removeTapIfNeeded()
+    }
+}
+
+// MARK: - Transcript Accumulator
+
+/// Accumulates recognised text across the several `SFSpeechRecognitionTask`s
+/// that make up one user-level dictation session.
+///
+/// `SFSpeechRecognizer` finalises and ends its task whenever the speaker pauses
+/// for long enough. MyWispr transparently starts a replacement task so the user
+/// can keep talking — but each task reports its own transcription from scratch.
+/// Without this accumulator the replacement would overwrite everything said
+/// before the pause, so a pause silently reset the dictation to nothing.
+struct TranscriptAccumulator {
+
+    /// Text from tasks that have already finished in this session.
+    private(set) var committed = ""
+
+    /// Text from the task currently running.
+    var current = ""
+
+    /// Everything recognised so far, normalised.
+    ///
+    /// `current` is trimmed here rather than only at the ends of the joined
+    /// string: the recogniser can report leading whitespace, which would
+    /// otherwise leave a double space at the seam between segments.
+    var full: String {
+        let cur = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if committed.isEmpty { return cur }
+        if cur.isEmpty { return committed }
+        return committed + " " + cur
+    }
+
+    /// Folds the finishing task's text into `committed`. Call before replacing
+    /// the recognition task, otherwise its text is lost.
+    mutating func commitCurrent() {
+        let text = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        current = ""
+        guard !text.isEmpty else { return }
+        committed = committed.isEmpty ? text : committed + " " + text
+    }
+
+    /// Clears everything, for the start of a new session or a cancellation.
+    mutating func reset() {
+        committed = ""
+        current = ""
     }
 }
