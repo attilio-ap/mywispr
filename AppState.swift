@@ -161,11 +161,14 @@ final class AppState: ObservableObject {
 
     // MARK: - History
 
+    /// Rough estimate: typing is ~1.25s per word slower than dictating.
+    /// Shared by `addRecord` and `updateRecord` so the two cannot disagree.
+    static let secondsSavedPerWord: Double = 1.25
+
     func addRecord(_ record: TranscriptionRecord) {
         transcriptionHistory.insert(record, at: 0)
         totalWords += record.wordCount
-        // Rough estimate: typing is ~1.25s per word slower than dictating.
-        timeSavedSeconds += Double(record.wordCount) * 1.25
+        timeSavedSeconds += Double(record.wordCount) * AppState.secondsSavedPerWord
         persistData()
     }
 
@@ -177,10 +180,17 @@ final class AppState: ObservableObject {
     }
 
     func updateRecord(id: UUID, newCleanedText: String) {
-        if let idx = transcriptionHistory.firstIndex(where: { $0.id == id }) {
-            transcriptionHistory[idx].cleanedText = newCleanedText
-            persistData()
-        }
+        guard let idx = transcriptionHistory.firstIndex(where: { $0.id == id }) else { return }
+
+        // Keep the running totals in step with the edit, otherwise Analytics
+        // slowly drifts away from the history it is supposed to describe.
+        let before = transcriptionHistory[idx].wordCount
+        transcriptionHistory[idx].cleanedText = newCleanedText
+        let delta = transcriptionHistory[idx].wordCount - before
+
+        totalWords = max(0, totalWords + delta)
+        timeSavedSeconds = max(0, timeSavedSeconds + Double(delta) * AppState.secondsSavedPerWord)
+        persistData()
     }
 
     // MARK: - Language
@@ -381,7 +391,9 @@ struct TranscriptionRecord: Identifiable, Codable {
     var cleanedText: String
 
     var wordCount: Int {
-        cleanedText.split(separator: " ").count
+        // Split on any whitespace, not just spaces: the Bullet List preset emits
+        // newline-separated Markdown, which " " alone would undercount.
+        cleanedText.split(whereSeparator: \.isWhitespace).count
     }
 
     init(rawText: String, cleanedText: String) {

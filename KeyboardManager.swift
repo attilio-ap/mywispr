@@ -18,6 +18,13 @@ final class KeyboardManager {
     var onHotkeyRejected: (() -> Void)?
 
     // MARK: - State
+    //
+    // `targetKeyCode` and `isRecordingNextKey` are written on the main thread and
+    // read on the tap thread without synchronisation. This is deliberate: both are
+    // single word-sized values whose worst case is the tap acting on a value that
+    // is a few microseconds stale — one keystroke handled under the previous
+    // binding. Taking a lock here would put contention on the system-wide event
+    // path, which is the one place in the app that must never block.
     private(set) var isRunning = false
     private var isKeyDown = false
     private var targetKeyCode: CGKeyCode

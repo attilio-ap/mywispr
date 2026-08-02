@@ -43,6 +43,16 @@ final class SpeechManager {
     /// Text accumulated across this user-level session.
     private var transcript = TranscriptAccumulator()
 
+    /// Guards against delivering the same session twice.
+    ///
+    /// `stopRecording()` arms a 2s safety-net timer in case the recogniser never
+    /// answers. If the recogniser *does* answer at roughly the same moment, both
+    /// paths call `deliverFinalTranscript()`. Without this flag they can each
+    /// read the transcript before either clears it, and the text gets pasted
+    /// twice; the later of the two would otherwise also report a spurious
+    /// silence, collapsing the overlay while Ollama was still processing.
+    private var hasDelivered = false
+
     /// Set when the caller explicitly asks to stop (key up).
     ///
     /// While this is false a final result is never delivered, even if
@@ -151,6 +161,7 @@ final class SpeechManager {
         cancelCurrentTask()
 
         stopRequested = false
+        hasDelivered = false
         transcript.reset()
 
         startRecognitionTask(with: recognizer)
@@ -197,6 +208,7 @@ final class SpeechManager {
     func cancelRecording() {
         Logger.log("Recording CANCELLED.")
         stopRequested = false
+        hasDelivered = false
         finalizeTimer?.invalidate()
         finalizeTimer = nil
         maxDurationTimer?.invalidate()
@@ -237,41 +249,44 @@ final class SpeechManager {
         request.requiresOnDeviceRecognition = isOnDeviceRecognition
         recognitionRequest = request
 
+        // The recogniser invokes this on an arbitrary queue. Everything it
+        // touches — the transcript, the task/request handles, and the Timers —
+        // is owned by the main queue, and `Timer.invalidate()` is only valid on
+        // the thread that scheduled it, so hop before doing any of it.
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            guard let self else { return }
+            DispatchQueue.main.async {
+                self?.handleRecognition(result: result, error: error)
+            }
+        }
+    }
 
-            if let result {
-                self.transcript.current = result.bestTranscription.formattedString
-                let combined = self.transcript.full
+    /// Processes one callback from the recogniser. Always on the main queue.
+    private func handleRecognition(result: SFSpeechRecognitionResult?, error: Error?) {
+        if let result {
+            transcript.current = result.bestTranscription.formattedString
+            onPartialTranscript?(transcript.full)
 
-                DispatchQueue.main.async {
-                    self.onPartialTranscript?(combined)
-                }
-
-                if result.isFinal {
-                    // Only deliver when the user asked to stop. Otherwise SFSpeech has
-                    // closed the session on its own (long pause) and we resume quietly.
-                    if self.stopRequested {
-                        self.deliverFinalTranscript()
-                    } else {
-                        Logger.log("isFinal received without a stop request → restarting session.")
-                        self.restartRecognitionSession()
-                    }
+            if result.isFinal {
+                // Only deliver when the user asked to stop. Otherwise SFSpeech has
+                // closed the session on its own (long pause) and we resume quietly.
+                if stopRequested {
+                    deliverFinalTranscript()
+                } else {
+                    Logger.log("isFinal received without a stop request → restarting session.")
+                    restartRecognitionSession()
                 }
             }
+        }
 
-            if let error {
-                let code = (error as NSError).code
-                let isExpected = SpeechManager.ignoredErrorCodes.contains(code)
+        if let error {
+            let code = (error as NSError).code
+            guard !SpeechManager.ignoredErrorCodes.contains(code) else { return }
 
-                if !isExpected {
-                    Logger.log("Recognition error: \(error.localizedDescription) (code: \(code))")
+            Logger.log("Recognition error: \(error.localizedDescription) (code: \(code))")
 
-                    // A genuine failure after a stop request: deliver whatever we have.
-                    if self.stopRequested {
-                        self.deliverFinalTranscript()
-                    }
-                }
+            // A genuine failure after a stop request: deliver whatever we have.
+            if stopRequested {
+                deliverFinalTranscript()
             }
         }
     }
@@ -329,6 +344,14 @@ final class SpeechManager {
     // MARK: - Delivery
 
     private func deliverFinalTranscript() {
+        dispatchPrecondition(condition: .onQueue(.main))
+
+        guard !hasDelivered else {
+            Logger.log("Duplicate delivery suppressed (recogniser and safety-net timer raced).")
+            return
+        }
+        hasDelivered = true
+
         finalizeTimer?.invalidate()
         finalizeTimer = nil
         maxDurationTimer?.invalidate()
