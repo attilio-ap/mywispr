@@ -5,6 +5,7 @@
 MyWispr
 MyWispr.app/
 AppIcon.iconset/
+.build/
 
 # Logs
 *.log

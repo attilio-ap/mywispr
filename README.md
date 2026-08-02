@@ -189,6 +189,23 @@ To add a language:
 
 The `t(_:_:)` helper takes one argument per language, so step 2 is exhaustive by construction.
 
+### Tests
+
+```bash
+./run-tests.sh              # every suite
+./run-tests.sh Analytics    # one suite
+```
+
+| Suite | Covers |
+| :--- | :--- |
+| `TranscriptAccumulator` | Text surviving the recogniser restarts that happen every time you pause |
+| `Analytics` | Word counting across line breaks, totals following history edits, glossary substitution |
+| `Prompts` | All six presets in both languages against a live model — normal dictation plus instruction injection, dictated questions, numbers, mangled technical terms |
+
+`Prompts` drives the real `OllamaManager`, so the prompts under test are the ones
+that ship — there is no second copy to drift. It skips rather than fails when
+Ollama is not running, and takes `MW_MODEL` / `MW_PRESET` / `MW_LANG` to narrow a run.
+
 ### Architecture
 
 | File | Responsibility |
@@ -350,6 +367,22 @@ Privacy e Sicurezza*.
 > disattivalo e riattivalo. macOS mantiene in cache le decisioni TCC per firma
 > del codice: questo forza l'aggiornamento ed è il rimedio abituale dopo una
 > ricompilazione.
+
+### Test
+
+```bash
+./run-tests.sh              # tutte le suite
+./run-tests.sh Analytics    # una sola
+```
+
+| Suite | Copre |
+| :--- | :--- |
+| `TranscriptAccumulator` | Il testo che sopravvive ai riavvii del riconoscitore a ogni pausa |
+| `Analytics` | Conteggio parole a capo, totali che seguono le modifiche allo storico, glossario |
+| `Prompts` | I sei preset in entrambe le lingue su un modello reale — dettatura normale più iniezione di istruzioni, domande dettate, numeri, termini tecnici storpiati |
+
+`Prompts` usa il vero `OllamaManager`, quindi testa esattamente i prompt che vengono
+spediti. Salta invece di fallire se Ollama non è in esecuzione.
 
 ### Limitazioni note
 
