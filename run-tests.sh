@@ -11,7 +11,7 @@
 set -euo pipefail
 
 # Sources under test. Mirrors build.sh minus main.swift.
-SOURCES="AppState.swift Localization.swift Theme.swift KeyboardManager.swift SpeechManager.swift OllamaManager.swift PasteManager.swift OverlayWindow.swift DashboardView.swift Logger.swift"
+SOURCES="AppState.swift DictationStateMachine.swift Localization.swift Theme.swift KeyboardManager.swift SpeechManager.swift OllamaManager.swift PasteManager.swift OverlayWindow.swift DashboardView.swift Logger.swift"
 
 SDK_PATH=$(xcrun --show-sdk-path --sdk macosx)
 BUILD_DIR=".build/tests"

@@ -18,19 +18,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Interaction State (hold-to-talk / lock-to-listen)
 
-    /// Maximum gap between two presses to count as a double-press.
-    private static let doublePressWindow: TimeInterval = 0.35
+    /// All the hold-to-talk / lock-to-listen decisions. This class only performs
+    /// the effects it returns — see `DictationStateMachine`.
+    private var machine = DictationStateMachine()
 
-    /// How long to wait after a key release before committing to "this was a single press".
-    /// Slightly shorter than `doublePressWindow` so the two cannot race.
-    private static let singlePressConfirmDelay: TimeInterval = 0.32
-
-    /// A press shorter than this with nothing transcribed is treated as accidental.
-    private static let accidentalTapThreshold: TimeInterval = 0.25
-
-    private var lastKeyDownTime: Date?
     private var keyUpTimer: Timer?
-    private var isLockedListening = false
     private var mouseMonitorLocal: Any?
     private var mouseMonitorGlobal: Any?
 
@@ -227,84 +219,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // ---------------------------------------------------------------
     private func setupHotkeyCallbacks() {
         keyboardManager.onKeyDown = { [weak self] in
-            guard let self else { return }
-            guard self.appState.hasSpeechPermission && self.appState.hasMicrophonePermission else {
-                Logger.log("onKeyDown ignored: permissions missing.")
-                self.showDashboard()
-                return
-            }
-
-            // Already locked? This press exits lock-to-listen.
-            if self.isLockedListening {
-                Logger.log("Hotkey DOWN while locked → leaving lock-to-listen.")
-                self.stopLockedRecording()
-                return
-            }
-
-            let now = Date()
-            let timeSinceLast = self.lastKeyDownTime.map { now.timeIntervalSince($0) } ?? .infinity
-            self.lastKeyDownTime = now
-
-            if timeSinceLast < Self.doublePressWindow {
-                // DOUBLE PRESS → enter lock-to-listen.
-                // Cancel the first press's key-up timer so the running session is not stopped.
-                self.keyUpTimer?.invalidate()
-                self.keyUpTimer = nil
-                Logger.log("Double press detected (\(String(format: "%.2f", timeSinceLast))s) → lock-to-listen active.")
-                self.isLockedListening = true
-                // The session started by the first press simply keeps running.
-            } else {
-                // FIRST PRESS → classic hold-to-talk.
-                if self.appState.isRecording {
-                    Logger.log("WARN: isRecording was true when starting a new hold-to-talk. Discarding the stale session.")
-                    self.speechManager.cancelRecording()
-                    self.appState.isProcessing = false
-                }
-                Logger.log("Hotkey DOWN (hold-to-talk).")
-                self.appState.partialTranscript = ""
-                self.appState.audioLevel = 0
-                self.appState.isRecording = true
-                self.appState.overlayMode = .recording
-                self.speechManager.startRecording()
-            }
+            self?.dispatch(.keyDown(at: Date()))
         }
 
         keyboardManager.onKeyUp = { [weak self] in
-            guard let self else { return }
-
-            // In lock-to-listen the key release means nothing.
-            if self.isLockedListening {
-                Logger.log("Hotkey UP ignored (lock-to-listen active).")
-                return
-            }
-
-            let keyUpTime = Date()
-
-            // Wait out the double-press window before committing to a single press.
-            // A second key-down within the window invalidates this timer.
-            self.keyUpTimer?.invalidate()
-            self.keyUpTimer = Timer.scheduledTimer(withTimeInterval: Self.singlePressConfirmDelay, repeats: false) { [weak self] _ in
-                guard let self, !self.isLockedListening else { return }
-
-                // Already finalised elsewhere (e.g. onSilence fired) — avoid a double finalise.
-                guard self.appState.isRecording else {
-                    Logger.log("keyUpTimer: not recording, ignoring.")
-                    return
-                }
-
-                let holdDuration = self.lastKeyDownTime.map { keyUpTime.timeIntervalSince($0) } ?? 1.0
-
-                if holdDuration < Self.accidentalTapThreshold && self.appState.partialTranscript.isEmpty {
-                    // Very short press with nothing said → the user brushed the key.
-                    Logger.log("Accidental tap (held \(String(format: "%.2f", holdDuration))s) → cancelling.")
-                    self.speechManager.cancelRecording()
-                    self.resetToIdle()
-                } else {
-                    Logger.log("Hold confirmed (\(String(format: "%.2f", holdDuration))s) → stopping recording.")
-                    self.speechManager.stopRecording()
-                    // Leave overlayMode alone: onFinalTranscript / onSilence will set it.
-                }
-            }
+            self?.dispatch(.keyUp(at: Date()))
         }
 
         keyboardManager.onHotkeyRecorded = { [weak self] keyCode in
@@ -335,19 +254,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // SpeechManager only raises this once a stop was requested and the transcript
         // is empty, so it no longer fires mid hold-to-talk.
         speechManager.onSilence = { [weak self] in
-            guard let self else { return }
-
-            if self.isLockedListening {
-                // SpeechManager restarts the session itself while locked.
-                Logger.log("Silence while locked: ignored (SpeechManager restarts on its own).")
-                return
-            }
-
-            Logger.log("Silence detected → returning to idle.")
-            self.keyUpTimer?.invalidate()
-            self.keyUpTimer = nil
-            self.appState.isProcessing = false
-            self.resetToIdle()
+            self?.dispatch(.silence)
         }
 
         // Live audio level → equaliser bars.
@@ -364,14 +271,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         speechManager.onFinalTranscript = { [weak self] rawText in
-            guard let self else { return }
             Logger.logSensitive("onFinalTranscript", rawText)
-
-            if self.isLockedListening {
-                self.handleLockedTranscript(rawText)
-            } else {
-                self.handleHoldToTalkTranscript(rawText)
-            }
+            self?.dispatch(.finalTranscript(rawText))
         }
     }
 
@@ -386,6 +287,87 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appState.$partialTranscript.receive(on: RunLoop.main).sink(receiveValue: resize).store(in: &cancellables)
     }
 
+    // MARK: - State Machine Dispatch
+
+    /// Feeds an event to the state machine and performs whatever it returns.
+    ///
+    /// All the branching lives in `DictationStateMachine`; this only knows how to
+    /// carry each decision out.
+    private func dispatch(_ event: DictationStateMachine.Event) {
+        let context = DictationStateMachine.Context(
+            hasPermissions: appState.hasSpeechPermission && appState.hasMicrophonePermission,
+            isRecording: appState.isRecording,
+            hasPartialTranscript: !appState.partialTranscript.isEmpty
+        )
+
+        for action in machine.handle(event, context: context) {
+            perform(action)
+        }
+    }
+
+    private func perform(_ action: DictationStateMachine.Action) {
+        switch action {
+        case .showDashboard:
+            Logger.log("Hotkey ignored: permissions missing.")
+            showDashboard()
+
+        case .beginRecording:
+            Logger.log("Hotkey DOWN (hold-to-talk).")
+            appState.partialTranscript = ""
+            appState.audioLevel = 0
+            appState.isRecording = true
+            appState.overlayMode = .recording
+            speechManager.startRecording()
+
+        case .discardStaleSession:
+            Logger.log("WARN: a session was still live when a new press arrived. Discarding it.")
+            speechManager.cancelRecording()
+            appState.isProcessing = false
+
+        case .enterLock:
+            Logger.log("Double press → lock-to-listen active.")
+
+        case .exitLock:
+            Logger.log("Leaving lock-to-listen.")
+            appState.isRecording = false
+            speechManager.stopRecording()
+
+        case .scheduleKeyUpConfirm(let keyUpAt):
+            keyUpTimer?.invalidate()
+            keyUpTimer = Timer.scheduledTimer(
+                withTimeInterval: DictationStateMachine.singlePressConfirmDelay,
+                repeats: false
+            ) { [weak self] _ in
+                self?.dispatch(.keyUpConfirmFired(keyUpAt: keyUpAt))
+            }
+
+        case .cancelKeyUpConfirm:
+            keyUpTimer?.invalidate()
+            keyUpTimer = nil
+
+        case .cancelAsAccidentalTap:
+            Logger.log("Accidental tap → cancelling.")
+            speechManager.cancelRecording()
+            resetToIdle()
+
+        case .stopForProcessing:
+            Logger.log("Hold confirmed → stopping recording.")
+            speechManager.stopRecording()
+            // Leave overlayMode alone: the transcript or the silence will set it.
+
+        case .returnToIdle:
+            Logger.log("Silence detected → returning to idle.")
+            appState.isProcessing = false
+            resetToIdle()
+
+        case .processTranscriptLocked(let text):
+            handleLockedTranscript(text)
+
+        case .processTranscriptHoldToTalk(let text):
+            handleHoldToTalkTranscript(text)
+        }
+    }
+
     // MARK: - Transcript Processing
 
     /// Lock-to-listen: paste this chunk, then immediately resume listening.
@@ -394,12 +376,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appState.overlayMode = .processing
 
         processAndPaste(rawText) { [weak self] in
-            guard let self, self.isLockedListening else { return }
+            guard let self, self.machine.isLocked else { return }
             self.appState.overlayMode = .recording
             self.appState.partialTranscript = ""
             // Small gap so the audio engine has fully torn down before restarting.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                guard let self, self.isLockedListening else { return }
+                guard let self, self.machine.isLocked else { return }
                 self.speechManager.startRecording()
             }
         }
@@ -407,8 +389,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Hold-to-talk: paste once, then return to idle.
     private func handleHoldToTalkTranscript(_ rawText: String) {
-        keyUpTimer?.invalidate()
-        keyUpTimer = nil
+        // The pending confirmation was already disarmed by .cancelKeyUpConfirm;
+        // the timer is owned solely by perform(_:).
         appState.isRecording = false
         appState.partialTranscript = ""
         appState.audioLevel = 0
@@ -500,31 +482,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func stopLockedRecording() {
-        isLockedListening = false
-        appState.isRecording = false
-        speechManager.stopRecording()
-    }
-
     /// Left-clicking anywhere is an escape hatch out of lock-to-listen.
     private func setupMouseMonitors() {
         // Local monitor: clicks inside MyWispr's own windows.
         mouseMonitorLocal = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
-            guard let self else { return event }
-            if self.isLockedListening {
-                Logger.log("Local mouse click detected. Stopping locked recording.")
-                self.stopLockedRecording()
-            }
+            self?.dispatch(.leftMouseClick)
             return event
         }
 
         // Global monitor: clicks in any other app.
         mouseMonitorGlobal = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] _ in
-            guard let self else { return }
-            if self.isLockedListening {
-                Logger.log("Global mouse click detected. Stopping locked recording.")
-                self.stopLockedRecording()
-            }
+            self?.dispatch(.leftMouseClick)
         }
     }
 

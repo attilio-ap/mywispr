@@ -22,7 +22,7 @@ if [ "$INSTALL" -eq 1 ] && pgrep -x "MyWispr" > /dev/null; then
     sleep 0.5
 fi
 
-SOURCES="main.swift AppState.swift Localization.swift Theme.swift KeyboardManager.swift SpeechManager.swift OllamaManager.swift PasteManager.swift OverlayWindow.swift DashboardView.swift Logger.swift"
+SOURCES="main.swift AppState.swift DictationStateMachine.swift Localization.swift Theme.swift KeyboardManager.swift SpeechManager.swift OllamaManager.swift PasteManager.swift OverlayWindow.swift DashboardView.swift Logger.swift"
 OUTPUT_BINARY="MyWispr"
 APP_NAME="MyWispr.app"
 
