@@ -287,7 +287,6 @@ struct DashboardView: View {
                             .cornerRadius(4)
                             .onTapGesture {
                                 selectedRecordId = record.id
-                                editedCleanedText = record.cleanedText
                             }
                         }
                         .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
@@ -295,6 +294,13 @@ struct DashboardView: View {
                     }
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
+                    // The List sets the selection itself for clicks it handles and
+                    // for keyboard navigation, neither of which the tap gesture
+                    // sees. Loading the editor from the selection keeps the two
+                    // panes in step whichever route changed it.
+                    .onChange(of: selectedRecordId) { newId in
+                        loadEditor(for: newId)
+                    }
                 }
             }
             .frame(width: 240)
@@ -427,6 +433,18 @@ struct DashboardView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    /// Loads the editor with the selected record's text, clearing it when the
+    /// selection is emptied or points at a record that no longer exists.
+    private func loadEditor(for id: UUID?) {
+        guard let id,
+              let record = state.transcriptionHistory.first(where: { $0.id == id })
+        else {
+            editedCleanedText = ""
+            return
+        }
+        editedCleanedText = record.cleanedText
     }
 
     private var filteredHistory: [TranscriptionRecord] {
