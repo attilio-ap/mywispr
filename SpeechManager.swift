@@ -63,8 +63,17 @@ final class SpeechManager {
     /// Fallback for the case where `SFSpeechRecognizer` never reports `isFinal`.
     private var finalizeTimer: Timer?
 
-    /// Hard ceiling on a single session, so lock-to-listen cannot record forever.
-    private var maxDurationTimer: Timer?
+    /// Rotates the recognition task before it reaches its own internal limit.
+    ///
+    /// There is no cap on how long the user may speak — the audio engine runs
+    /// for as long as they hold the key. But a single `SFSpeechRecognitionTask`
+    /// will not run indefinitely, so one is swapped for a fresh one every
+    /// `taskRotationInterval`, carrying the text across via the accumulator.
+    /// The microphone is never interrupted.
+    private var taskRotationTimer: Timer?
+
+    /// Comfortably inside the limit a recognition task will tolerate.
+    private static let taskRotationInterval: TimeInterval = 50
 
     /// Recognition error codes that are expected and should not be logged.
     /// 1110 = recording stopped (follows `endAudio`), 301 = request cancelled (follows `cancel()`).
@@ -175,7 +184,7 @@ final class SpeechManager {
         do {
             try audioEngine.start()
             Logger.log("Recording started.")
-            startMaxDurationTimer()
+            startTaskRotationTimer()
         } catch {
             Logger.log("ERROR: could not start the audio engine: \(error.localizedDescription)")
             cancelCurrentTask()
@@ -192,8 +201,8 @@ final class SpeechManager {
         Logger.log("Stop requested by user.")
 
         stopRequested = true
-        maxDurationTimer?.invalidate()
-        maxDurationTimer = nil
+        taskRotationTimer?.invalidate()
+        taskRotationTimer = nil
 
         // Tell the recognizer no more audio is coming → triggers isFinal or error 1110.
         recognitionRequest?.endAudio()
@@ -211,8 +220,8 @@ final class SpeechManager {
         hasDelivered = false
         finalizeTimer?.invalidate()
         finalizeTimer = nil
-        maxDurationTimer?.invalidate()
-        maxDurationTimer = nil
+        taskRotationTimer?.invalidate()
+        taskRotationTimer = nil
         transcript.reset()
         cancelCurrentTask()
     }
@@ -263,7 +272,11 @@ final class SpeechManager {
     /// Processes one callback from the recogniser. Always on the main queue.
     private func handleRecognition(result: SFSpeechRecognitionResult?, error: Error?) {
         if let result {
-            transcript.current = result.bestTranscription.formattedString
+            let previouslyCommitted = transcript.committed.count
+            transcript.update(result.bestTranscription.formattedString)
+            if transcript.committed.count != previouslyCommitted {
+                Logger.log("Recogniser started a new utterance; \(transcript.committed.count) chars carried over.")
+            }
             onPartialTranscript?(transcript.full)
 
             if result.isFinal {
@@ -331,13 +344,15 @@ final class SpeechManager {
         }
     }
 
-    /// Caps a single session at 55s so lock-to-listen cannot record indefinitely.
-    private func startMaxDurationTimer() {
-        maxDurationTimer?.invalidate()
-        maxDurationTimer = Timer.scheduledTimer(withTimeInterval: 55.0, repeats: false) { [weak self] _ in
-            guard let self, self.audioEngine.isRunning else { return }
-            Logger.log("Maximum duration reached (55s). Stopping automatically.")
-            self.stopRecording()
+    /// Keeps a long dictation alive by cycling the recognition task underneath it.
+    private func startTaskRotationTimer() {
+        taskRotationTimer?.invalidate()
+        taskRotationTimer = Timer.scheduledTimer(
+            withTimeInterval: Self.taskRotationInterval, repeats: true
+        ) { [weak self] _ in
+            guard let self, self.audioEngine.isRunning, !self.stopRequested else { return }
+            Logger.log("Rotating the recognition task to keep a long dictation going.")
+            self.restartRecognitionSession()
         }
     }
 
@@ -354,8 +369,8 @@ final class SpeechManager {
 
         finalizeTimer?.invalidate()
         finalizeTimer = nil
-        maxDurationTimer?.invalidate()
-        maxDurationTimer = nil
+        taskRotationTimer?.invalidate()
+        taskRotationTimer = nil
 
         let text = transcript.full
         transcript.reset()
@@ -412,7 +427,48 @@ struct TranscriptAccumulator {
     private(set) var committed = ""
 
     /// Text from the task currently running.
-    var current = ""
+    private(set) var current = ""
+
+    /// Records the recogniser's latest transcription for the running task.
+    ///
+    /// `SFSpeechRecognizer` normally *extends* what it reports as the speaker
+    /// continues: "ciao" → "ciao come" → "ciao come stai". After a pause it can
+    /// silently begin a new utterance, and the string drops back to just the new
+    /// words — without ever setting `isFinal`. Assigning that straight into
+    /// `current` discarded everything said before the pause, which is what made
+    /// a pause look like it reset the dictation.
+    ///
+    /// So the segment boundary is detected from the text itself. The check is
+    /// deliberately conservative: the recogniser also *revises* its wording as it
+    /// goes ("ciao come" → "Ciao, come"), and treating a revision as a new
+    /// segment would duplicate text instead of losing it.
+    mutating func update(_ transcription: String) {
+        let incoming = transcription.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !incoming.isEmpty else { return }
+
+        if startsNewSegment(incoming) {
+            commitCurrent()
+        }
+        current = incoming
+    }
+
+    /// True when the incoming text cannot be a refinement of the current one.
+    ///
+    /// Requires both that it does not continue the current text *and* that it is
+    /// substantially shorter, so ordinary rewording is never mistaken for a reset.
+    private func startsNewSegment(_ incoming: String) -> Bool {
+        guard !current.isEmpty else { return false }
+        if Self.strippingNoise(incoming).hasPrefix(Self.strippingNoise(current)) {
+            return false        // still growing, or only punctuation changed
+        }
+        return incoming.count * 2 < current.count
+    }
+
+    /// Letters and digits only, lowercased: lets a comma or a capital appearing
+    /// mid-stream count as the same text rather than a new utterance.
+    private static func strippingNoise(_ text: String) -> String {
+        text.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
 
     /// Everything recognised so far, normalised.
     ///

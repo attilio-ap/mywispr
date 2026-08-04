@@ -88,6 +88,10 @@ need to debug something. The log rotates at 1 MB.
 - Panels are translucent material with continuous-curvature corners and hairline edges; the sidebar uses real `NSVisualEffectView` vibrancy, matching the overlay's glass.
 - The monochrome accent inverts rather than flattening: black-on-white becomes white-on-black.
 
+**No time limit**
+- Speak for as long as you like. A single `SFSpeechRecognitionTask` will not run indefinitely, so MyWispr swaps in a fresh one every 50 seconds and carries the text across — the microphone is never interrupted and nothing said is dropped.
+- Pauses are handled the same way: the recogniser silently starts a new utterance after a pause, and the text from before it is preserved rather than overwritten.
+
 **Two dictation modes**
 - **Hold-to-talk** — hold the hotkey (default: Right Option), speak, release. Transcribed, cleaned, pasted.
 - **Lock-to-listen** — press the hotkey twice quickly for hands-free continuous dictation. Each pause is transcribed, cleaned, pasted, and the mic restarts automatically. Exit with the hotkey or any left click.
@@ -230,7 +234,6 @@ Ollama is not running, and takes `MW_MODEL` / `MW_PRESET` / `MW_LANG` to narrow 
 - Apple Silicon only; no Intel build target.
 - The macOS permission prompts follow the **system** language, not the in-app picker — macOS reads them from the bundle before the app runs.
 - Not notarized — Gatekeeper will warn on first launch.
-- Recognition sessions are capped at 55 seconds, after which lock-to-listen restarts automatically.
 - Pasting uses a synthetic Cmd+V, so it will not work in apps that ignore the standard paste shortcut.
 
 ### License
@@ -288,6 +291,10 @@ Privacy quando serve fare diagnosi. Il file ruota a 1 MB.
 - Tutta l'interfaccia usa colori semantici di macOS e `Material` di SwiftUI, quindi segue l'aspetto di sistema — con in più un selettore Sistema / Chiaro / Scuro in *Impostazioni AI*.
 - I pannelli sono materiale traslucido con angoli a curvatura continua e bordi sottilissimi; la barra laterale usa la vera vibrancy di `NSVisualEffectView`, in linea col vetro della notch.
 - L'accento monocromatico si inverte invece di appiattirsi: nero-su-bianco diventa bianco-su-nero.
+
+**Nessun limite di tempo**
+- Parla quanto vuoi. Un singolo `SFSpeechRecognitionTask` non gira all'infinito, quindi MyWispr ne avvia uno nuovo ogni 50 secondi portandosi dietro il testo: il microfono non si interrompe mai e nulla di ciò che hai detto va perso.
+- Le pause sono gestite allo stesso modo: dopo una pausa il riconoscitore ricomincia in silenzio una nuova frase, e il testo precedente viene conservato invece che sovrascritto.
 
 **Due modalità di dettatura**
 - **Hold-to-talk** — tieni premuto l'hotkey (default: Opzione Destra), parla, rilascia.
@@ -394,7 +401,6 @@ spediti. Salta invece di fallire se Ollama non è in esecuzione.
 - Solo Apple Silicon, nessun target Intel.
 - Le richieste di permesso di macOS seguono la lingua di **sistema**, non il selettore interno: macOS le legge dal bundle prima che l'app parta.
 - Non notarizzata: Gatekeeper avvisa al primo avvio.
-- Le sessioni di riconoscimento sono limitate a 55 secondi; in lock-to-listen riparte automaticamente.
 - L'incolla usa un Cmd+V sintetico, quindi non funziona nelle app che ignorano la scorciatoia standard.
 
 ### Licenza

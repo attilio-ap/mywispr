@@ -47,7 +47,12 @@ final class OllamaManager {
             return
         }
 
-        var request = URLRequest(url: url, timeoutInterval: 30)
+        // Dictation is not time-limited, so a transcript can be long. URLRequest's
+        // timeout counts the wait for data, and a non-streamed generate returns
+        // nothing until it is finished — a fixed 30s would abort a genuinely slow
+        // reply on a long text and wrongly report Ollama as offline.
+        let timeout = max(30.0, 30.0 + Double(trimmed.count) / 40.0)
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = bodyData
