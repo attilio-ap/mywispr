@@ -75,6 +75,15 @@ final class SpeechManager {
     /// Comfortably inside the limit a recognition task will tolerate.
     private static let taskRotationInterval: TimeInterval = 50
 
+    /// Identifies the live recognition task.
+    ///
+    /// Cancelling a task still produces callbacks, and a task being retired
+    /// during a rotation can answer with `isFinal` — which triggered a second
+    /// rotation 23ms after the first, and could let a late result from a replaced
+    /// task overwrite text that had already moved on. Callbacks stamped with an
+    /// older generation are ignored.
+    private var taskGeneration = 0
+
     /// Recognition error codes that are expected and should not be logged.
     /// 1110 = recording stopped (follows `endAudio`), 301 = request cancelled (follows `cancel()`).
     private static let ignoredErrorCodes: Set<Int> = [1110, 301]
@@ -262,9 +271,13 @@ final class SpeechManager {
         // touches — the transcript, the task/request handles, and the Timers —
         // is owned by the main queue, and `Timer.invalidate()` is only valid on
         // the thread that scheduled it, so hop before doing any of it.
+        taskGeneration += 1
+        let generation = taskGeneration
+
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             DispatchQueue.main.async {
-                self?.handleRecognition(result: result, error: error)
+                guard let self, generation == self.taskGeneration else { return }
+                self.handleRecognition(result: result, error: error)
             }
         }
     }

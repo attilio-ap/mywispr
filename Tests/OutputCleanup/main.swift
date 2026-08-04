@@ -41,4 +41,43 @@ T.equal("a multi-line real body is kept whole",
         strip("## Instructions\n- first\n- second\n\n## Constraints\nNone"),
         "## Instructions\n- first\n- second")
 
+let preface = OllamaManager.strippingPreface
+
+T.section("announcing prefaces are removed")
+// Reported from real use: the model prefixed the cleaned text with a preface
+// even though the prompt forbids it.
+T.equal("Italian preface on its own line",
+        preface("Ecco la trascrizione:\nCiao, come stai?"), "Ciao, come stai?")
+T.equal("Italian preface on the same line",
+        preface("Ecco il testo pulito: Ciao, come stai?"), "Ciao, come stai?")
+T.equal("English preface",
+        preface("Here is the cleaned text:\nHello, how are you?"), "Hello, how are you?")
+T.equal("bare label",
+        preface("Trascrizione: buongiorno a tutti"), "buongiorno a tutti")
+T.equal("labelled variant",
+        preface("Testo corretto:\nIl documento è pronto."), "Il documento è pronto.")
+
+T.section("real content is never mistaken for a preface")
+// A dictation may legitimately open with a colon-terminated phrase.
+T.equal("a genuine note is kept",
+        preface("Nota per il team: ricordarsi di aggiornare i documenti."),
+        "Nota per il team: ricordarsi di aggiornare i documenti.")
+T.equal("a name and a colon are kept",
+        preface("Marco: confermato per domani."), "Marco: confermato per domani.")
+// "testo" is intentionally not a bare label, since this is plausible dictation.
+T.equal("a generic label is kept",
+        preface("Testo: bozza numero uno"), "Testo: bozza numero uno")
+T.equal("ordinary text is untouched",
+        preface("Ciao, come stai?"), "Ciao, come stai?")
+T.equal("a Markdown heading is never stripped",
+        preface("## Istruzioni\nLeggi il system prompt."), "## Istruzioni\nLeggi il system prompt.")
+T.equal("a bullet list is never stripped",
+        preface("- primo punto\n- secondo punto"), "- primo punto\n- secondo punto")
+T.equal("empty stays empty", preface(""), "")
+
+T.section("preface and empty sections together")
+T.equal("both passes apply to prompt-builder output",
+        strip(preface("Ecco il prompt:\n## Ruolo\nEsperto\n\n## Vincoli\nNon specificato")),
+        "## Ruolo\nEsperto")
+
 T.finish("OutputCleanup")

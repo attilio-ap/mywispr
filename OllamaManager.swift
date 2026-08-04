@@ -81,9 +81,10 @@ final class OllamaManager {
 
             // The prompt forbids empty scaffolding sections, and models emit them
             // anyway. A deterministic pass is more dependable than another rule.
-            let finalText = preset == .promptBuilder
-                ? OllamaManager.strippingEmptySections(cleaned)
-                : cleaned
+            var finalText = OllamaManager.strippingPreface(cleaned)
+            if preset == .promptBuilder {
+                finalText = OllamaManager.strippingEmptySections(finalText)
+            }
 
             Logger.logSensitive("Ollama cleaned text", finalText)
             DispatchQueue.main.async { completion(finalText, true) }
@@ -426,6 +427,63 @@ final class OllamaManager {
 // MARK: - Output Cleanup
 
 extension OllamaManager {
+
+    /// Openers the model sometimes prepends despite being told not to, e.g.
+    /// "Ecco la trascrizione:" or "Here is the cleaned text:".
+    ///
+    /// Anchored and specific rather than keyword-based: a dictation may legitimately
+    /// begin "Nota per il team:", and only phrases that announce the output itself
+    /// should be removed.
+    private static let prefacePatterns = [
+        #"^ecco\s+(?:il|lo|la|i|le)?\s*(?:testo|trascrizione|traduzione|risultato|prompt|elenco|contenuto)\b[^:\n]*:"#,
+        #"^(?:questo\s+è|di\s+seguito)\s+(?:il|lo|la)?\s*(?:testo|trascrizione|traduzione|risultato)\b[^:\n]*:"#,
+        #"^(?:il\s+)?(?:testo|trascrizione|traduzione|risultato|output)\s*(?:pulit\w+|corrett\w+|elaborat\w+|final\w+|richiest\w+)\s*:"#,
+        #"^here\s+(?:is|are|'s)\s+(?:the|your)?\s*(?:cleaned|corrected|processed|final|requested)?\s*(?:text|transcription|translation|result|prompt|list|version)\b[^:\n]*:"#,
+        #"^below\s+is\s+(?:the|your)?\s*(?:cleaned|corrected|processed)?\s*(?:text|transcription|result)\b[^:\n]*:"#,
+        #"^(?:cleaned|corrected|processed|final)\s+(?:text|transcription|version)\s*:"#,
+        #"^(?:transcription|translation|output|result)\s*:"#,
+        // Bare Italian labels. "testo" is deliberately absent: "Testo: bozza 1"
+        // is a plausible thing to actually dictate.
+        #"^(?:trascrizione|traduzione|risultato)\s*:"#,
+    ]
+
+    /// Removes an announcing preface, whether it sits on its own line or is
+    /// followed by the text on the same line.
+    ///
+    /// The prompts forbid these and the model still produces them occasionally.
+    /// A deterministic pass is dependable where an instruction is not.
+    static func strippingPreface(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let firstLineEnd = trimmed.firstIndex(where: { $0.isNewline }) ?? trimmed.indices.last
+        else { return trimmed }
+
+        let firstLine = String(trimmed[...firstLineEnd])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Never touch Markdown structure: a heading or a bullet is real output.
+        guard !firstLine.hasPrefix("#"), !firstLine.hasPrefix("-"), !firstLine.hasPrefix("*") else {
+            return trimmed
+        }
+
+        for pattern in prefacePatterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { continue }
+            let range = NSRange(firstLine.startIndex..., in: firstLine)
+            guard let match = regex.firstMatch(in: firstLine, options: [], range: range),
+                  let matchRange = Range(match.range, in: firstLine) else { continue }
+
+            // Whatever follows the colon on that line is content; keep it.
+            let remainderOfLine = String(firstLine[matchRange.upperBound...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let rest = trimmed.index(after: firstLineEnd) < trimmed.endIndex
+                ? String(trimmed[trimmed.index(after: firstLineEnd)...])
+                : ""
+
+            let rebuilt = remainderOfLine.isEmpty ? rest : remainderOfLine + "\n" + rest
+            return rebuilt.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return trimmed
+    }
 
     /// Bodies that mean "this section has nothing in it".
     private static let emptySectionMarkers = [
