@@ -237,8 +237,10 @@ final class OllamaManager {
             - Risolvi autocorrezioni e ripensamenti: se chi parla si corregge o cambia idea a metà frase ("ci vediamo alle 7... anzi no, alle 9", "ti mando il file... no, l'e-mail"), tieni SOLO la versione finale voluta e scarta quella smentita.
             - Correggi errori di grammatica, sintassi, ortografia e refusi fonetici.
             - Rimuovi balbettii, ripetizioni involontarie e intercalari (ehm, uhm, cioè, tipo, allora, praticamente, diciamo, no?).
-            - Aggiungi la punteggiatura corretta e spezza i periodi troppo lunghi.
-            - Mantieni la persona verbale, il registro e il significato voluto da chi parla.
+            - Aggiungi la punteggiatura corretta. Spezza un periodo SOLO se è davvero illeggibile: chi parla ha un suo ritmo, e frantumarlo in frasi brevi rende il testo telegrafico.
+            - Le pause del parlato NON sono confini di frase. Se una pausa ha interrotto un pensiero a metà, ricongiungi i frammenti in un periodo unico, usando i connettivi di chi parla (e, poi, quindi, però, perché) invece di lasciare frasi mozze accostate.
+            - NON riassumere e non condensare: il risultato deve dire tutto quello che è stato detto, tolti solo intercalari e ripetizioni. Se il testo pulito è molto più corto del dettato, hai tagliato contenuto e stai sbagliando.
+            - Mantieni la persona verbale, il registro e il tono di chi parla: il risultato deve suonare come quella persona scritta bene, non come un riassunto steso da qualcun altro.
             """
         case .professional:
             presetInstruction = """
@@ -336,8 +338,10 @@ final class OllamaManager {
             - Resolve self-corrections and changes of mind: if the speaker corrects themselves mid-sentence ("let's meet at 7... actually no, make it 9", "send me the file... no, the email"), keep ONLY the final intent and drop the retracted version.
             - Fix grammar, syntax and spelling, including the homophone errors typical of dictation (their/there/they're, its/it's, to/too/two, your/you're, affect/effect, whole/hole). Resolve each from the meaning of the whole sentence rather than word by word, and fix the surrounding grammar to match: "there going to send they're report" becomes "They're going to send their report".
             - Remove stammers, involuntary repetitions and filler words (um, uh, er, like, you know, I mean, basically, actually, sort of, kind of, right).
-            - Add correct punctuation and capitalisation, and split run-on sentences.
-            - Keep the speaker's grammatical person, register and intended meaning.
+            - Add correct punctuation and capitalisation. Split a sentence ONLY when it is genuinely unreadable: the speaker has a rhythm, and chopping it into short sentences makes the result telegraphic.
+            - Pauses in speech are NOT sentence boundaries. Where a pause cut a thought in half, join the fragments back into one sentence using the speaker's own connectives (and, then, so, but, because) rather than leaving clipped sentences side by side.
+            - Do NOT summarise or condense: the result must say everything that was said, minus fillers and repetitions. If the cleaned text is much shorter than the dictation, you have cut content and got it wrong.
+            - Keep the speaker's grammatical person, register and tone: the result should read like that person written well, not like someone else's summary.
             """
         case .professional:
             presetInstruction = """

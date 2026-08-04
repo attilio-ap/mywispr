@@ -25,6 +25,9 @@ struct Case {
     var forbidden: [String] = []
     /// Substrings that MUST appear (case-insensitive).
     var required: [String] = []
+    /// Lower bound on output length. Catches the cleanup quietly turning into a
+    /// summary: cleaning removes fillers, it does not remove content.
+    var minLength: Int? = nil
     /// Upper bound on output length. Catches a short dictation being inflated
     /// into paragraphs of context the speaker never provided.
     var maxLength: Int? = nil
@@ -148,6 +151,30 @@ cases += [
       note: "figures and dates preserved"),
 ]
 
+// ---------- fluency: reported as robotic, staggered, schematic ----------
+cases += [
+ Case(id: "it-fluidita", lang: .italian, preset: .standard,
+      input: "Allora senti ti volevo aggiornare sul progetto. Il documento è quasi pronto. "
+           + "Mancano solo un paio di sezioni. Poi ho parlato con il cliente. Gli va bene la data. "
+           + "Quindi possiamo procedere. Però dobbiamo sistemare il budget.",
+      // The recogniser ends every fragment with a full stop, so a mid-thought pause
+      // becomes a fake sentence boundary. The result must read as connected prose.
+      minLength: 170,
+      note: "frammenti ricongiunti, niente telegrafico"),
+ Case(id: "it-nessuna-condensazione", lang: .italian, preset: .standard,
+      input: "ecco allora praticamente volevo dirti che ho finito la revisione del contratto "
+           + "e ci sono tre punti che secondo me vanno rivisti prima di firmare "
+           + "cioè la clausola sulla riservatezza i tempi di consegna e poi la penale",
+      minLength: 180,
+      note: "tutti e tre i punti devono sopravvivere"),
+ Case(id: "en-fluency", lang: .english, preset: .standard,
+      input: "So I wanted to update you on the project. The document is nearly ready. "
+           + "Only a couple of sections left. Then I spoke to the client. The date works for them. "
+           + "So we can go ahead. But we need to fix the budget.",
+      minLength: 170,
+      note: "fragments rejoined, not telegraphic"),
+]
+
 // ---------- other presets, key risks only ----------
 cases += [
  Case(id: "it-formale", lang: .italian, preset: .professional,
@@ -247,6 +274,9 @@ for c in cases {
         for ph in placeholders where low.contains(ph) {
             problems.append("sezione segnaposto: \"\(ph)\"")
         }
+    }
+    if let minLength = c.minLength, out.count < minLength {
+        problems.append("output troppo corto: \(out.count) caratteri da \(c.input.count) in ingresso (min \(minLength)) — probabile riassunto")
     }
     if let maxLength = c.maxLength, out.count > maxLength {
         problems.append("output sproporzionato: \(out.count) caratteri da \(c.input.count) in ingresso (max \(maxLength))")
