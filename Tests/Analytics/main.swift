@@ -45,4 +45,13 @@ T.equal("word-boundary replacement", state.applyGlossary(to: "il gittab è lento
 state.glossary = ["prezzo": "costo $1"]
 T.equal("replacement is not a regex template", state.applyGlossary(to: "il prezzo sale"), "il costo $1 sale")
 
+T.section("word count is shown with the right plural")
+// "1 words" was visible on every single-word row in the history list.
+let it = L10n(.italian), en = L10n(.english)
+T.equal("one, Italian",  it.historyWordCount(1), "1 parola")
+T.equal("one, English",  en.historyWordCount(1), "1 word")
+T.equal("many, Italian", it.historyWordCount(7), "7 parole")
+T.equal("many, English", en.historyWordCount(7), "7 words")
+T.equal("zero, English", en.historyWordCount(0), "0 words")
+
 T.finish("Analytics")

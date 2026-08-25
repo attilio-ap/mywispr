@@ -149,7 +149,11 @@ struct L10n {
 
     var historySearchPlaceholder: String { t("Cerca nello storico...", "Search history…") }
     var historyNoRecords: String   { t("Nessun record trovato", "No records found") }
-    func historyWordCount(_ n: Int) -> String { t("\(n) parole", "\(n) words") }
+    /// Singular matters here: the history list shows a count on every row, so a
+    /// one-word dictation rendered as "1 words" in plain sight.
+    func historyWordCount(_ n: Int) -> String {
+        n == 1 ? t("1 parola", "1 word") : t("\(n) parole", "\(n) words")
+    }
     var historyRecordDetails: String { t("Dettagli Registrazione", "Recording Details") }
     var historyAt: String          { t("alle", "at") }
     var historyRawSpeech: String   { t("🔈 PARLATO GREZZO", "🔈 RAW SPEECH") }
@@ -342,6 +346,9 @@ struct L10n {
     var analyticsTotalTranscriptions: String { t("Trascrizioni totali effettuate", "Total transcriptions") }
     var analyticsAverageLength: String { t("Lunghezza media trascrizione", "Average transcription length") }
     func analyticsWordsValue(_ v: Double) -> String { String(format: t("%.1f parole", "%.1f words"), v) }
+    func presetsCount(_ n: Int) -> String {
+        n == 1 ? t("1 preset", "1 preset") : t("\(n) preset", "\(n) presets")
+    }
     var analyticsPreferredModel: String { t("Modello LLM locale preferito", "Preferred local LLM model") }
 
     // MARK: - Ollama Monitor Tab
