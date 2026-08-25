@@ -290,7 +290,13 @@ struct OverlayView: View {
     private func customPresetButton(_ preset: CustomPreset) -> some View {
         let isSelected = state.aiPreset == .custom && state.activeCustomPresetId == preset.id
         return Button(action: {
-            state.activateCustomPreset(id: preset.id)
+            // Toggling: clicking the active pill returns to the standard preset,
+            // so the notch alone can both enter and leave a custom preset.
+            if isSelected {
+                state.deactivateCustomPreset()
+            } else {
+                state.activateCustomPreset(id: preset.id)
+            }
         }) {
             Image(systemName: preset.icon)
                 .font(.system(size: 8, weight: .bold))

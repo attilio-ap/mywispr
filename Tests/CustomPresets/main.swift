@@ -83,4 +83,27 @@ T.equal("activation of a missing preset is a no-op", "\(state.activeCustomPreset
 state.updateCustomPreset(id: UUID(), name: "x", icon: "gear", prompt: "x", temp: 0.5)
 T.equal("editing a missing preset is a no-op", state.effectiveCustomPrompt, "AAA")
 
+T.section("deactivating returns to standard")
+
+let z = state.addCustomPreset(name: "Z", icon: "gear", prompt: "ZZZ", temp: 0.7)
+state.activateCustomPreset(id: z.id)
+T.equal("active before", "\(state.aiPreset)", "custom")
+
+state.deactivateCustomPreset()
+T.equal("back to standard", "\(state.aiPreset)", "standard")
+T.equal("reference cleared", "\(state.activeCustomPresetId == nil)", "true")
+// The preset itself must survive: deactivating is not deleting.
+T.equal("the preset is still saved", "\(state.customPresets.contains { $0.id == z.id })", "true")
+// Temperature is deliberately left alone rather than silently moved back.
+T.equal("temperature untouched", state.temperature, 0.7)
+
+T.section("deactivating twice is harmless")
+state.deactivateCustomPreset()
+T.equal("still standard", "\(state.aiPreset)", "standard")
+
+T.section("reactivating after deactivating")
+state.activateCustomPreset(id: z.id)
+T.equal("active again", "\(state.activeCustomPresetId == z.id)", "true")
+T.equal("its prompt is sent again", state.effectiveCustomPrompt, "ZZZ")
+
 T.finish("CustomPresets")

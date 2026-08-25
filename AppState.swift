@@ -320,6 +320,17 @@ final class AppState: ObservableObject {
         persistData()
     }
 
+    /// Returns to the standard preset without touching the saved presets.
+    ///
+    /// The temperature is deliberately left where it is: activating a preset
+    /// applied its value, and silently moving the slider again on the way out
+    /// would be a change the user did not ask for.
+    func deactivateCustomPreset() {
+        activeCustomPresetId = nil
+        aiPreset = .standard
+        persistData()
+    }
+
     /// Makes a custom preset the one in use.
     func activateCustomPreset(id: UUID) {
         guard let preset = customPresets.first(where: { $0.id == id }) else { return }

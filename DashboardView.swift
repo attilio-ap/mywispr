@@ -206,6 +206,10 @@ struct DashboardView: View {
             .padding(.vertical, 8)
             .background(isSelected ? Theme.accent : Color.clear)
             .cornerRadius(5)
+            // Without this the hit area is only the icon and the text: an
+            // unselected row draws a clear background, and clear pixels are not
+            // hit-testable, so the padding and the Spacer swallowed clicks.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -288,6 +292,7 @@ struct DashboardView: View {
                             .padding(.horizontal, 8)
                             .background(selectedRecordId == record.id ? Theme.accentMuted : Color.clear)
                             .cornerRadius(4)
+                            .contentShape(Rectangle())
                             .onTapGesture {
                                 selectedRecordId = record.id
                             }
@@ -384,8 +389,8 @@ struct DashboardView: View {
                                         .foregroundColor(Theme.label)
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 6)
-                                        .background(Color.clear)
                                         .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(Theme.accent, lineWidth: 1))
+                                        .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
                                 
@@ -609,29 +614,37 @@ struct DashboardView: View {
                     .font(.system(size: 9))
                     .foregroundColor(Theme.secondaryLabel)
 
-                if isActive {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundColor(Theme.success)
-                } else {
-                    Button(action: { state.activateCustomPreset(id: preset.id) }) {
-                        Text(state.l10n.presetsActivate)
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(Theme.onAccent)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.chipRadius, style: .continuous))
+                Button(action: {
+                    if isActive {
+                        state.deactivateCustomPreset()
+                    } else {
+                        state.activateCustomPreset(id: preset.id)
                     }
-                    .buttonStyle(.plain)
+                }) {
+                    Text(isActive ? state.l10n.presetsDeactivate : state.l10n.presetsActivate)
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(isActive ? Theme.label : Theme.onAccent)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(isActive ? Color.clear : Theme.accent,
+                                    in: RoundedRectangle(cornerRadius: Theme.chipRadius, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.chipRadius, style: .continuous)
+                                .strokeBorder(isActive ? Theme.controlStroke : Color.clear, lineWidth: 0.5)
+                        )
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .help(isActive ? state.l10n.presetsDeactivateHint : "")
 
                 Button(action: { beginEditing(preset) }) {
                     Image(systemName: "pencil")
                         .font(.system(size: 11))
                         .foregroundColor(isEditing ? Theme.onAccent : Theme.label)
-                        .padding(3)
+                        .frame(width: 22, height: 20)
                         .background(isEditing ? Theme.accent : Color.clear,
                                     in: RoundedRectangle(cornerRadius: Theme.chipRadius, style: .continuous))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
@@ -639,6 +652,8 @@ struct DashboardView: View {
                     Image(systemName: "trash")
                         .font(.system(size: 10))
                         .foregroundColor(Theme.danger)
+                        .frame(width: 22, height: 20)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
@@ -1023,6 +1038,7 @@ struct DashboardView: View {
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
                                 .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(Theme.controlStroke, lineWidth: 0.5))
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
@@ -1353,6 +1369,7 @@ struct DashboardView: View {
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
                                 .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(Theme.controlStroke, lineWidth: 0.5))
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
@@ -1634,6 +1651,7 @@ struct DashboardView: View {
                             .padding(.vertical, 5)
                             .glassPanel()
                             .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(Theme.accent, lineWidth: 1))
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }

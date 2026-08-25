@@ -188,6 +188,11 @@ struct L10n {
     var presetsCancel: String     { t("ANNULLA", "CANCEL") }
     var presetsEdit: String       { t("MODIFICA", "EDIT") }
     var presetsActive: String     { t("ATTIVO", "ACTIVE") }
+    var presetsDeactivate: String { t("DISATTIVA", "DEACTIVATE") }
+    var presetsDeactivateHint: String {
+        t("Disattivandolo si torna al preset Standard. Il preset resta salvato.",
+          "Deactivating returns to the Standard preset. The preset itself is kept.")
+    }
     var presetsActiveHint: String {
         t("Il preset attivo si applica a ogni dettatura finché non ne scegli un altro. Le modifiche hanno effetto subito.",
           "The active preset applies to every dictation until you choose another. Edits take effect immediately.")
