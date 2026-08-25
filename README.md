@@ -23,16 +23,26 @@ Hold a key, speak, release — your words land in any text field, already correc
 
 ## Screenshots
 
-<!-- TODO: replace these placeholders with real captures before publishing.
-     Suggested set:
-       docs/overlay-recording.png  — the notch mid-dictation, equaliser visible
-       docs/overlay-transcript.png — the notch showing the live transcript
-       docs/dashboard-history.png  — the dashboard History tab with a diff
-       docs/demo.gif               — 10s: hold key → speak → text appears in a real app
-     A short GIF of the full hold-to-talk loop is by far the most useful asset here. -->
+![MyWispr dashboard — raw speech beside the AI-cleaned text](docs/dashboard.png)
 
-| The overlay, mid-dictation | The dashboard |
-| :---: | :---: |
+*The History tab, dark mode. Left: what was actually said, mid-sentence correction and all.
+Right: what MyWispr pasted.* **"…tomorrow at nine, sorry no, let's meet up tomorrow at 11 o'clock"**
+*became* **"Let's meet up tomorrow at 11 o'clock."**
+
+<!-- STILL TO ADD, before publishing:
+
+  1. docs/notch-hover.png — the notch expanded on hover, showing the preset pills,
+     captured over something colourful. The frosted glass is invisible on a flat
+     background: it has nothing to blur.
+
+  2. The demo video. Do NOT commit it — a .mov bloats the git history permanently.
+     Instead: edit this README on github.com, drag the file into the editor, and
+     GitHub hosts it and inserts the link itself. Record it with the model already
+     warm (dictate one throwaway phrase first) and make sure it ends with the text
+     landing in the target app.
+-->
+
+---: | :---: |
 | _`docs/overlay-recording.png`_ | _`docs/dashboard-history.png`_ |
 
 ---
