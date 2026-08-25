@@ -69,8 +69,39 @@ final class AppState: ObservableObject {
     @Published var loadedOllamaModels: [String] = []
     @Published var aiPreset: AIPreset = .standard
     @Published var temperature: Double = 0.1
+    /// Legacy free-text custom instruction.
+    ///
+    /// Superseded by `customPresets` + `activeCustomPresetId`, but kept and still
+    /// honoured so a setting saved before named presets existed is not lost.
     @Published var customPrompt: String = ""
+
+    /// Which custom preset is in use while `aiPreset == .custom`.
+    ///
+    /// Activation stores a *reference* rather than copying the prompt text, so
+    /// editing a preset takes effect immediately on the one in use, and the UI
+    /// can show which is active — neither of which was possible with a copy.
+    @Published var activeCustomPresetId: UUID? = nil
+
     @Published var customPresets: [CustomPreset] = []
+
+    /// The active custom preset, if any.
+    var activeCustomPreset: CustomPreset? {
+        guard let id = activeCustomPresetId else { return nil }
+        return customPresets.first { $0.id == id }
+    }
+
+    /// The instruction actually sent to the model for the `.custom` preset.
+    /// Falls back to the legacy free-text prompt when no preset is selected.
+    var effectiveCustomPrompt: String {
+        activeCustomPreset?.systemPrompt ?? customPrompt
+    }
+
+    /// Name to show for the current preset: the custom preset's own name when one
+    /// is active, so the notch reads "Slack reply" rather than "Personalizzato".
+    func presetDisplayName(_ l10n: L10n) -> String {
+        if aiPreset == .custom, let active = activeCustomPreset { return active.name }
+        return l10n.presetName(aiPreset)
+    }
 
     /// Writes dictated text to the diagnostic log. Off by default — see `Logger`.
     @Published var verboseLogging: Bool = false {
@@ -263,14 +294,52 @@ final class AppState: ObservableObject {
 
     // MARK: - Custom Presets
 
-    func addCustomPreset(name: String, icon: String, prompt: String, temp: Double) {
+    @discardableResult
+    func addCustomPreset(name: String, icon: String, prompt: String, temp: Double) -> CustomPreset {
         let preset = CustomPreset(id: UUID(), name: name, icon: icon, systemPrompt: prompt, temperature: temp)
         customPresets.append(preset)
+        persistData()
+        return preset
+    }
+
+    /// Edits a preset in place.
+    ///
+    /// When the edited preset is the active one its temperature is applied at
+    /// once; the prompt needs no copying because `effectiveCustomPrompt` reads
+    /// through to the preset itself.
+    func updateCustomPreset(id: UUID, name: String, icon: String, prompt: String, temp: Double) {
+        guard let index = customPresets.firstIndex(where: { $0.id == id }) else { return }
+        customPresets[index].name = name
+        customPresets[index].icon = icon
+        customPresets[index].systemPrompt = prompt
+        customPresets[index].temperature = temp
+
+        if activeCustomPresetId == id {
+            temperature = temp
+        }
+        persistData()
+    }
+
+    /// Makes a custom preset the one in use.
+    func activateCustomPreset(id: UUID) {
+        guard let preset = customPresets.first(where: { $0.id == id }) else { return }
+        activeCustomPresetId = id
+        aiPreset = .custom
+        temperature = preset.temperature
         persistData()
     }
 
     func removeCustomPreset(id: UUID) {
         customPresets.removeAll(where: { $0.id == id })
+
+        // Deleting the preset in use would otherwise leave `.custom` selected
+        // with nothing behind it, silently sending an empty instruction.
+        if activeCustomPresetId == id {
+            activeCustomPresetId = nil
+            if customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                aiPreset = .standard
+            }
+        }
         persistData()
     }
 
@@ -286,6 +355,11 @@ final class AppState: ObservableObject {
         UserDefaults.standard.set(ollamaModelName, forKey: "mw_model_name")
         UserDefaults.standard.set(temperature, forKey: "mw_temp")
         UserDefaults.standard.set(customPrompt, forKey: "mw_custom_prompt")
+        if let activeId = activeCustomPresetId {
+            UserDefaults.standard.set(activeId.uuidString, forKey: "mw_active_custom_preset")
+        } else {
+            UserDefaults.standard.removeObject(forKey: "mw_active_custom_preset")
+        }
         UserDefaults.standard.set(verboseLogging, forKey: Logger.verboseDefaultsKey)
         UserDefaults.standard.set(dictationLanguage.rawValue, forKey: "mw_dictation_language")
         UserDefaults.standard.set(uiLanguage.rawValue, forKey: "mw_ui_language")
@@ -360,6 +434,13 @@ final class AppState: ObservableObject {
         if let customPresetsData = UserDefaults.standard.data(forKey: "mw_custom_presets"),
            let decodedPresets = try? JSONDecoder().decode([CustomPreset].self, from: customPresetsData) {
             customPresets = decodedPresets
+        }
+
+        // Restore the active preset, ignoring a reference to one that no longer exists.
+        if let raw = UserDefaults.standard.string(forKey: "mw_active_custom_preset"),
+           let id = UUID(uuidString: raw),
+           customPresets.contains(where: { $0.id == id }) {
+            activeCustomPresetId = id
         }
     }
 }

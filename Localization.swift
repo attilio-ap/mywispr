@@ -183,6 +183,24 @@ struct L10n {
     }
     func presetsAITemp(_ v: Double) -> String { String(format: t("Temp AI: %.1f", "AI temp: %.1f"), v) }
     var presetsSave: String { t("SALVA PRESET", "SAVE PRESET") }
+    var presetsEditTitle: String  { t("MODIFICA PRESET", "EDIT PRESET") }
+    var presetsSaveChanges: String { t("SALVA MODIFICHE", "SAVE CHANGES") }
+    var presetsCancel: String     { t("ANNULLA", "CANCEL") }
+    var presetsEdit: String       { t("MODIFICA", "EDIT") }
+    var presetsActive: String     { t("ATTIVO", "ACTIVE") }
+    var presetsActiveHint: String {
+        t("Il preset attivo si applica a ogni dettatura finché non ne scegli un altro. Le modifiche hanno effetto subito.",
+          "The active preset applies to every dictation until you choose another. Edits take effect immediately.")
+    }
+    var presetsUseFromNotch: String {
+        t("I preset personalizzati compaiono anche nella notch, con l'icona che hai scelto.",
+          "Custom presets also appear in the notch, with the icon you picked.")
+    }
+
+    // MARK: - History save feedback
+
+    var historySaved: String { t("MODIFICHE SALVATE", "CHANGES SAVED") }
+    var historyNoChanges: String { t("Nessuna modifica da salvare", "No changes to save") }
 
     // MARK: - Settings Tab
 

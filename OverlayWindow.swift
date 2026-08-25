@@ -40,7 +40,14 @@ class OverlayWindow: NSPanel {
     /// Both the SwiftUI view and the window frame derive their size from this,
     /// and `PassThroughHostingView` uses it for hit testing — if these ever
     /// disagreed, clicks would land outside the visible capsule.
-    static func capsuleSize(for mode: OverlayMode, showOfflineAlert: Bool, partialTranscript: String) -> NSSize {
+    /// Custom preset pills shown in the notch. Beyond this the capsule would grow
+    /// wider than is comfortable on screen; the rest stay reachable in the dashboard.
+    static let maxCustomPillsInNotch = 3
+
+    static func capsuleSize(for mode: OverlayMode,
+                            showOfflineAlert: Bool,
+                            partialTranscript: String,
+                            customPresetCount: Int = 0) -> NSSize {
         if showOfflineAlert {
             return NSSize(width: 200, height: 30)
         }
@@ -48,7 +55,9 @@ class OverlayWindow: NSPanel {
         case .idle:
             return NSSize(width: 36, height: 10)
         case .hovered:
-            return NSSize(width: 300, height: 30)
+            // Each extra pill is 18pt wide plus 4pt of spacing.
+            let pills = min(customPresetCount, maxCustomPillsInNotch)
+            return NSSize(width: 300 + CGFloat(pills) * 22, height: 30)
         case .recording:
             // Widen once there is live text to show.
             return NSSize(width: partialTranscript.isEmpty ? 140 : 380, height: 30)
@@ -70,7 +79,8 @@ class OverlayWindow: NSPanel {
         let capsule = OverlayWindow.capsuleSize(
             for: appState.overlayMode,
             showOfflineAlert: appState.showOfflineAlert,
-            partialTranscript: appState.partialTranscript
+            partialTranscript: appState.partialTranscript,
+            customPresetCount: appState.customPresets.count
         )
 
         let newW = capsule.width + capsulePadding * 2
@@ -107,7 +117,8 @@ struct OverlayView: View {
         OverlayWindow.capsuleSize(
             for: state.overlayMode,
             showOfflineAlert: state.showOfflineAlert,
-            partialTranscript: state.partialTranscript
+            partialTranscript: state.partialTranscript,
+            customPresetCount: state.customPresets.count
         )
     }
 
@@ -249,7 +260,7 @@ struct OverlayView: View {
                 .fill(state.isOllamaConnected ? Color.green : Color.orange)
                 .frame(width: 5, height: 5)
 
-            Text(state.l10n.presetName(state.aiPreset).uppercased())
+            Text(state.presetDisplayName(state.l10n).uppercased())
                 .font(.system(size: 8, weight: .black))
                 .foregroundColor(.primary.opacity(0.85))
                 .lineLimit(1)
@@ -263,15 +274,39 @@ struct OverlayView: View {
                 presetButton(preset: .bullets, icon: "list.bullet")
                 presetButton(preset: .translation, icon: "character.bubble.fill")
                 presetButton(preset: .promptBuilder, icon: "lightbulb.fill")
+
+                // Custom presets, with the icon chosen when they were created —
+                // which until now had no purpose beyond the dashboard list.
+                ForEach(state.customPresets.prefix(OverlayWindow.maxCustomPillsInNotch)) { preset in
+                    customPresetButton(preset)
+                }
             }
         }
         .padding(.horizontal, 10)
     }
 
+    /// A pill for one custom preset. Selected state tracks the active preset by id,
+    /// so two custom presets are never both highlighted.
+    private func customPresetButton(_ preset: CustomPreset) -> some View {
+        let isSelected = state.aiPreset == .custom && state.activeCustomPresetId == preset.id
+        return Button(action: {
+            state.activateCustomPreset(id: preset.id)
+        }) {
+            Image(systemName: preset.icon)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundColor(isSelected ? Theme.onAccent : Theme.label)
+                .frame(width: 18, height: 18)
+                .background(isSelected ? Theme.accent : Theme.accentMuted)
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+    }
+
     private func presetButton(preset: AIPreset, icon: String) -> some View {
-        let isSelected = state.aiPreset == preset
+        let isSelected = state.aiPreset == preset && state.activeCustomPresetId == nil
         return Button(action: {
             state.aiPreset = preset
+            state.activeCustomPresetId = nil
             state.persistData()
         }) {
             Image(systemName: icon)

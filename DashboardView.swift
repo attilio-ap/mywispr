@@ -24,13 +24,16 @@ struct DashboardView: View {
     @State private var selectedReprocessPreset: AIPreset = .standard
     @State private var isReprocessing: Bool = false
     @State private var searchHistoryQuery: String = ""
+    /// Set briefly after a successful save so the button can confirm it happened.
+    @State private var savedConfirmationId: UUID? = nil
 
     // Preset tab state
     @State private var newPresetName: String = ""
     @State private var newPresetIcon: String = "doc.text.fill"
     @State private var newPresetPrompt: String = ""
     @State private var newPresetTemp: Double = 0.3
-    @State private var showAddPresetForm: Bool = false
+    /// Non-nil while the form is editing an existing preset rather than creating one.
+    @State private var editingPresetId: UUID? = nil
 
     // Glossary tab state
     @State private var newWord: String = ""
@@ -347,18 +350,30 @@ struct DashboardView: View {
 
                             // Save / Copy / Delete buttons
                             HStack(spacing: 12) {
-                                Button(action: {
-                                    state.updateRecord(id: record.id, newCleanedText: editedCleanedText)
-                                }) {
-                                    Text(state.l10n.historySaveChanges)
-                                        .font(.system(size: 9, weight: .bold))
-                                        .foregroundColor(Theme.onAccent)
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 6)
-                                        .background(Theme.accent)
-                                        .cornerRadius(3)
+                                // The save worked before, but looked identical
+                                // whether or not there was anything to save and
+                                // gave no sign it had happened.
+                                Button(action: { saveEdits(to: record) }) {
+                                    HStack(spacing: 5) {
+                                        if savedConfirmationId == record.id {
+                                            Image(systemName: "checkmark")
+                                                .font(.system(size: 9, weight: .bold))
+                                        }
+                                        Text(savedConfirmationId == record.id
+                                             ? state.l10n.historySaved
+                                             : state.l10n.historySaveChanges)
+                                            .font(.system(size: 9, weight: .bold))
+                                    }
+                                    .foregroundColor(Theme.onAccent)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 6)
+                                    .background(savedConfirmationId == record.id ? Theme.success
+                                                : (hasUnsavedEdits(record) ? Theme.accent : Theme.secondaryLabel),
+                                                in: RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous))
                                 }
                                 .buttonStyle(.plain)
+                                .disabled(!hasUnsavedEdits(record))
+                                .help(hasUnsavedEdits(record) ? "" : state.l10n.historyNoChanges)
 
                                 Button(action: {
                                     NSPasteboard.general.clearContents()
@@ -435,9 +450,26 @@ struct DashboardView: View {
         }
     }
 
+    /// Whether the editor differs from what is stored, which is what makes the
+    /// save button meaningful rather than always available.
+    private func hasUnsavedEdits(_ record: TranscriptionRecord) -> Bool {
+        editedCleanedText != record.cleanedText
+    }
+
+    /// Saves and confirms visibly, then returns the button to its normal state.
+    private func saveEdits(to record: TranscriptionRecord) {
+        guard hasUnsavedEdits(record) else { return }
+        state.updateRecord(id: record.id, newCleanedText: editedCleanedText)
+        savedConfirmationId = record.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if savedConfirmationId == record.id { savedConfirmationId = nil }
+        }
+    }
+
     /// Loads the editor with the selected record's text, clearing it when the
     /// selection is emptied or points at a record that no longer exists.
     private func loadEditor(for id: UUID?) {
+        savedConfirmationId = nil
         guard let id,
               let record = state.transcriptionHistory.first(where: { $0.id == id })
         else {
@@ -471,7 +503,7 @@ struct DashboardView: View {
             modelName: state.ollamaModelName,
             temperature: state.temperature,
             preset: selectedReprocessPreset,
-            customPrompt: state.customPrompt,
+            customPrompt: state.effectiveCustomPrompt,
             language: state.dictationLanguage
         ) { cleaned, success in
             isReprocessing = false
@@ -490,10 +522,13 @@ struct DashboardView: View {
         VStack(spacing: 12) {
             // List of custom presets
             VStack(alignment: .leading, spacing: 8) {
-                Text(state.l10n.presetsYourCustom)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(Theme.secondaryLabel)
-                
+                HStack {
+                    Text(state.l10n.presetsYourCustom)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(Theme.secondaryLabel)
+                    Spacer()
+                }
+
                 if state.customPresets.isEmpty {
                     VStack {
                         Text(state.l10n.presetsEmpty)
@@ -506,137 +541,226 @@ struct DashboardView: View {
                 } else {
                     List {
                         ForEach(state.customPresets) { preset in
-                            HStack {
-                                Image(systemName: preset.icon)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(Theme.label)
-                                    .frame(width: 20)
-                                
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(preset.name)
-                                        .font(.system(size: 11, weight: .bold))
-                                        .foregroundColor(Theme.label)
-                                    Text(preset.systemPrompt)
-                                        .font(.system(size: 9))
-                                        .foregroundColor(Theme.secondaryLabel)
-                                        .lineLimit(1)
-                                }
-                                
-                                Spacer()
-                                
-                                HStack(spacing: 12) {
-                                    Text(state.l10n.presetsTemp(preset.temperature))
-                                        .font(.system(size: 9))
-                                        .foregroundColor(Theme.secondaryLabel)
-                                    
-                                    Button(action: {
-                                        // Apply the prompt and temperature, activating it as the custom preset
-                                        state.aiPreset = .custom
-                                        state.customPrompt = preset.systemPrompt
-                                        state.temperature = preset.temperature
-                                        state.persistData()
-                                    }) {
-                                        Text(state.l10n.presetsActivate)
-                                            .font(.system(size: 8, weight: .bold))
-                                            .foregroundColor(Theme.onAccent)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 3)
-                                            .background(Theme.accent)
-                                            .cornerRadius(2)
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    Button(action: {
-                                        state.removeCustomPreset(id: preset.id)
-                                    }) {
-                                        Image(systemName: "trash")
-                                            .font(.system(size: 10))
-                                            .foregroundColor(Theme.danger)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                            .listRowInsets(EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 10))
-                            .listRowBackground(Color.clear)
+                            presetRow(preset)
+                                .listRowInsets(EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 10))
+                                .listRowBackground(Color.clear)
                         }
                     }
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
                     .overlay(RoundedRectangle(cornerRadius: Theme.panelRadius, style: .continuous).strokeBorder(Theme.hairline, lineWidth: 0.5))
-                    .frame(height: 180)
+                    .frame(height: 170)
+
+                    Text(state.l10n.presetsActiveHint)
+                        .font(.system(size: 9))
+                        .foregroundColor(Theme.secondaryLabel)
+                    Text(state.l10n.presetsUseFromNotch)
+                        .font(.system(size: 9))
+                        .foregroundColor(Theme.tertiaryLabel)
                 }
             }
             .padding(.horizontal, 20)
             .padding(.top, 10)
-            
+
             Divider().background(Theme.separator).padding(.horizontal, 20)
 
-            // Add-preset form
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text(state.l10n.presetsCreateNew)
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(Theme.secondaryLabel)
-                    Spacer()
-                }
+            presetForm
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+        }
+    }
 
-                HStack(spacing: 12) {
-                    TextField(state.l10n.presetsNamePlaceholder, text: $newPresetName)
-                        .textFieldStyle(PlainTextFieldStyle())
-                        .padding(6)
-                        .glassField()
-                        .font(.system(size: 10))
-                    
-                    Picker(state.l10n.presetsIconLabel, selection: $newPresetIcon) {
-                        ForEach(availableIcons, id: \.self) { icon in
-                            Image(systemName: icon).tag(icon)
-                        }
-                    }
-                    .frame(width: 140)
-                    .font(.system(size: 10))
-                }
+    /// One row of the custom preset list.
+    private func presetRow(_ preset: CustomPreset) -> some View {
+        let isActive = state.activeCustomPresetId == preset.id && state.aiPreset == .custom
+        let isEditing = editingPresetId == preset.id
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(state.l10n.presetsPromptLabel)
-                        .font(.system(size: 9, weight: .bold))
-                    TextEditor(text: $newPresetPrompt)
-                        .font(.system(size: 10))
-                        .frame(height: 60)
-                        .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(Theme.controlStroke, lineWidth: 0.5))
-                        .cornerRadius(2)
-                }
+        return HStack {
+            Image(systemName: preset.icon)
+                .font(.system(size: 12))
+                .foregroundColor(isActive ? Theme.success : Theme.label)
+                .frame(width: 20)
 
-                HStack {
-                    Slider(value: $newPresetTemp, in: 0.0...1.0, step: 0.1) {
-                        Text(state.l10n.presetsAITemp(newPresetTemp)).font(.system(size: 9))
-                    }
-                    .accentColor(.black)
-                    
-                    Spacer(minLength: 20)
-
-                    Button(action: {
-                        guard !newPresetName.isEmpty && !newPresetPrompt.isEmpty else { return }
-                        state.addCustomPreset(name: newPresetName, icon: newPresetIcon, prompt: newPresetPrompt, temp: newPresetTemp)
-                        newPresetName = ""
-                        newPresetPrompt = ""
-                    }) {
-                        Text(state.l10n.presetsSave)
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(Theme.onAccent)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 6)
-                            .background(Theme.accent)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(preset.name)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(Theme.label)
+                    if isActive {
+                        Text(state.l10n.presetsActive)
+                            .font(.system(size: 7, weight: .black))
+                            .foregroundColor(Theme.success)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Theme.success.opacity(0.15))
                             .cornerRadius(3)
+                    }
+                }
+                Text(preset.systemPrompt)
+                    .font(.system(size: 9))
+                    .foregroundColor(Theme.secondaryLabel)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            HStack(spacing: 10) {
+                Text(state.l10n.presetsTemp(preset.temperature))
+                    .font(.system(size: 9))
+                    .foregroundColor(Theme.secondaryLabel)
+
+                if isActive {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.success)
+                } else {
+                    Button(action: { state.activateCustomPreset(id: preset.id) }) {
+                        Text(state.l10n.presetsActivate)
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(Theme.onAccent)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.chipRadius, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button(action: { beginEditing(preset) }) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 11))
+                        .foregroundColor(isEditing ? Theme.onAccent : Theme.label)
+                        .padding(3)
+                        .background(isEditing ? Theme.accent : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: Theme.chipRadius, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button(action: { deletePreset(preset) }) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 10))
+                        .foregroundColor(Theme.danger)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background(isActive ? Theme.success.opacity(0.08) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: Theme.chipRadius, style: .continuous))
+    }
+
+    /// Create/edit form. The same fields serve both, switched by `editingPresetId`.
+    private var presetForm: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(editingPresetId == nil ? state.l10n.presetsCreateNew : state.l10n.presetsEditTitle)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(editingPresetId == nil ? Theme.secondaryLabel : Theme.label)
+                Spacer()
+                if editingPresetId != nil {
+                    Button(action: cancelEditing) {
+                        Text(state.l10n.presetsCancel)
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(Theme.secondaryLabel)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(14)
-            .glassPanel()
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+
+            HStack(spacing: 12) {
+                TextField(state.l10n.presetsNamePlaceholder, text: $newPresetName)
+                    .textFieldStyle(PlainTextFieldStyle())
+                    .padding(6)
+                    .glassField()
+                    .font(.system(size: 10))
+
+                Picker(state.l10n.presetsIconLabel, selection: $newPresetIcon) {
+                    ForEach(availableIcons, id: \.self) { icon in
+                        Image(systemName: icon).tag(icon)
+                    }
+                }
+                .frame(width: 140)
+                .font(.system(size: 10))
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(state.l10n.presetsPromptLabel)
+                    .font(.system(size: 9, weight: .bold))
+                TextEditor(text: $newPresetPrompt)
+                    .font(.system(size: 10))
+                    .frame(height: 60)
+                    .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).strokeBorder(Theme.controlStroke, lineWidth: 0.5))
+                    .cornerRadius(2)
+            }
+
+            HStack {
+                Slider(value: $newPresetTemp, in: 0.0...1.0, step: 0.1) {
+                    Text(state.l10n.presetsAITemp(newPresetTemp)).font(.system(size: 9))
+                }
+                .accentColor(Theme.accent)
+
+                Spacer(minLength: 20)
+
+                Button(action: savePresetForm) {
+                    Text(editingPresetId == nil ? state.l10n.presetsSave : state.l10n.presetsSaveChanges)
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(Theme.onAccent)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 6)
+                        .background(isPresetFormValid ? Theme.accent : Theme.secondaryLabel,
+                                    in: RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(!isPresetFormValid)
+            }
         }
+        .padding(14)
+        .glassPanel()
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.panelRadius, style: .continuous)
+                .strokeBorder(editingPresetId == nil ? Color.clear : Theme.accent.opacity(0.5), lineWidth: 1)
+        )
+    }
+
+    private var isPresetFormValid: Bool {
+        !newPresetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !newPresetPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func beginEditing(_ preset: CustomPreset) {
+        editingPresetId = preset.id
+        newPresetName = preset.name
+        newPresetIcon = preset.icon
+        newPresetPrompt = preset.systemPrompt
+        newPresetTemp = preset.temperature
+    }
+
+    private func cancelEditing() {
+        editingPresetId = nil
+        newPresetName = ""
+        newPresetPrompt = ""
+        newPresetIcon = "doc.text.fill"
+        newPresetTemp = 0.3
+    }
+
+    private func savePresetForm() {
+        guard isPresetFormValid else { return }
+        let name = newPresetName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prompt = newPresetPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let id = editingPresetId {
+            state.updateCustomPreset(id: id, name: name, icon: newPresetIcon, prompt: prompt, temp: newPresetTemp)
+        } else {
+            state.addCustomPreset(name: name, icon: newPresetIcon, prompt: prompt, temp: newPresetTemp)
+        }
+        cancelEditing()
+    }
+
+    /// Deleting the preset being edited must also leave the form, otherwise the
+    /// edit would silently target a preset that no longer exists.
+    private func deletePreset(_ preset: CustomPreset) {
+        if editingPresetId == preset.id { cancelEditing() }
+        state.removeCustomPreset(id: preset.id)
     }
 
     // MARK: - Tab 2: AI Settings & Models
@@ -747,9 +871,21 @@ struct DashboardView: View {
                         .font(.system(size: 10, weight: .black))
                         .foregroundColor(Theme.secondaryLabel)
                     
-                    Picker(state.l10n.settingsActivePreset, selection: $state.aiPreset) {
+                    Picker(state.l10n.settingsActivePreset, selection: Binding(
+                        get: { state.aiPreset },
+                        set: { newValue in
+                            state.aiPreset = newValue
+                            if newValue != .custom { state.activeCustomPresetId = nil }
+                            state.persistData()
+                        }
+                    )) {
                         ForEach(AIPreset.allCases.filter { $0 != .custom }, id: \.self) { preset in
                             Text(state.l10n.presetName(preset)).tag(preset)
+                        }
+                        // Without an entry for the active custom preset the picker
+                        // would have no match for its own selection and show blank.
+                        if let active = state.activeCustomPreset {
+                            Text(active.name).tag(AIPreset.custom)
                         }
                     }
                     .font(.system(size: 10))

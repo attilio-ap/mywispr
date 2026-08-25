@@ -109,7 +109,7 @@ need to debug something. The log rotates at 1 MB.
 - *Bullet list* — turns speech into structured action items.
 - *Translation* — directional: Italian in → idiomatic English out, or English in → idiomatic Italian out, following the language picker.
 - *Prompt builder* — expands a spoken idea into a structured AI prompt.
-- *Custom* — your own instructions, saved as reusable presets.
+- *Custom* — your own instructions, saved as reusable named presets: create, edit and activate them from the Presets tab, or switch straight from the notch using the icon you gave each one. Editing the preset in use takes effect on the next dictation.
 - The app checks whether the model is already resident in RAM/VRAM and shows "Starting AI model…" while it warms up, instead of appearing frozen.
 - If Ollama is unreachable, you get a visible warning and the **raw transcript is still pasted** — a dictation is never lost.
 
@@ -205,6 +205,7 @@ The `t(_:_:)` helper takes one argument per language, so step 2 is exhaustive by
 | `DictationStateMachine` | Hold-to-talk and lock-to-listen: double-press detection, accidental taps, exits, stale events, timing boundaries |
 | `TranscriptAccumulator` | Text surviving the recogniser restarts that happen every time you pause |
 | `Analytics` | Word counting across line breaks, totals following history edits, glossary substitution |
+| `CustomPresets` | Activation by reference, editing the preset in use, deletion leaving nothing dangling, legacy fallback |
 | `OutputCleanup` | Stripping the empty scaffolding sections models add to prompt-builder output |
 | `Prompts` | All six presets in both languages against a live model — normal dictation plus instruction injection, dictated questions, numbers, mangled technical terms |
 
@@ -313,7 +314,7 @@ Privacy quando serve fare diagnosi. Il file ruota a 1 MB.
 - *Elenco puntato* — trasforma il parlato in punti orientati all'azione.
 - *Traduzione* — direzionale: dall'italiano a un inglese idiomatico, o viceversa, seguendo il selettore di lingua.
 - *Generatore di prompt* — espande un'idea dettata in un prompt AI strutturato.
-- *Personalizzato* — le tue istruzioni, salvabili come preset riutilizzabili.
+- *Personalizzato* — le tue istruzioni, salvate come preset con un nome: creali, modificali e attivali dal tab Preset, oppure cambiali al volo dalla notch con l'icona che hai scelto. Modificare il preset in uso ha effetto dalla dettatura successiva.
 - L'app verifica se il modello è già in RAM/VRAM e mostra "Avvio modello AI…" durante il caricamento, invece di sembrare bloccata.
 - Se Ollama non è raggiungibile ricevi un avviso e **viene comunque incollata la trascrizione grezza**: una dettatura non si perde mai.
 
@@ -390,6 +391,7 @@ Privacy e Sicurezza*.
 | `DictationStateMachine` | Hold-to-talk e lock-to-listen: doppia pressione, tap accidentali, uscite, eventi obsoleti, soglie temporali |
 | `TranscriptAccumulator` | Il testo che sopravvive ai riavvii del riconoscitore a ogni pausa |
 | `Analytics` | Conteggio parole a capo, totali che seguono le modifiche allo storico, glossario |
+| `CustomPresets` | Attivazione per riferimento, modifica del preset in uso, cancellazione senza riferimenti pendenti, compatibilità col vecchio prompt |
 | `OutputCleanup` | Rimozione delle sezioni vuote che i modelli aggiungono all'output del generatore di prompt |
 | `Prompts` | I sei preset in entrambe le lingue su un modello reale — dettatura normale più iniezione di istruzioni, domande dettate, numeri, termini tecnici storpiati |
 

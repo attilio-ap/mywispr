@@ -285,6 +285,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appState.$overlayMode.receive(on: RunLoop.main).sink(receiveValue: resize).store(in: &cancellables)
         appState.$showOfflineAlert.receive(on: RunLoop.main).sink(receiveValue: resize).store(in: &cancellables)
         appState.$partialTranscript.receive(on: RunLoop.main).sink(receiveValue: resize).store(in: &cancellables)
+        appState.$customPresets.receive(on: RunLoop.main).sink(receiveValue: resize).store(in: &cancellables)
     }
 
     // MARK: - State Machine Dispatch
@@ -422,7 +423,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 modelName: self.appState.ollamaModelName,
                 temperature: self.appState.temperature,
                 preset: self.appState.aiPreset,
-                customPrompt: self.appState.customPrompt,
+                customPrompt: self.appState.effectiveCustomPrompt,
                 language: self.appState.dictationLanguage
             ) { [weak self] cleaned, success in
                 guard let self else { return }
@@ -533,7 +534,8 @@ class PassThroughHostingView<Content: View>: NSHostingView<Content> {
         let capsule = OverlayWindow.capsuleSize(
             for: window.appState.overlayMode,
             showOfflineAlert: window.appState.showOfflineAlert,
-            partialTranscript: window.appState.partialTranscript
+            partialTranscript: window.appState.partialTranscript,
+            customPresetCount: window.appState.customPresets.count
         )
         let rect = NSRect(
             x: bounds.midX - capsule.width / 2,

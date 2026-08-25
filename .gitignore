@@ -9,3 +9,4 @@ AppIcon.iconset/
 
 # Logs
 *.log
+/project-media
