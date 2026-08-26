@@ -25,9 +25,10 @@ Hold a key, speak, release — your words land in any text field, already correc
 
 ![MyWispr dashboard — raw speech beside the AI-cleaned text](docs/dashboard.png)
 
-*The History tab, dark mode. Left: what was actually said, mid-sentence correction and all.
-Right: what MyWispr pasted.* **"…tomorrow at nine, sorry no, let's meet up tomorrow at 11 o'clock"**
-*became* **"Let's meet up tomorrow at 11 o'clock."**
+*The History tab in dark mode. On the right, what was actually said next to what
+MyWispr pasted:* **"…let's meet tomorrow at nine, actually no sorry, let's make it eleven"**
+*became* **"Let's meet tomorrow at 11."** *— the hesitation removed and the correction
+resolved, not merely transcribed.*
 
 <!-- STILL TO ADD, before publishing:
 
