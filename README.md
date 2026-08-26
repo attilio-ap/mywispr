@@ -30,18 +30,16 @@ MyWispr pasted:* **"…let's meet tomorrow at nine, actually no sorry, let's mak
 *became* **"Let's meet tomorrow at 11."** *— the hesitation removed and the correction
 resolved, not merely transcribed.*
 
-<!-- STILL TO ADD, before publishing:
+![The notch expanded on hover, showing the AI preset switcher](docs/notch-hover.png)
 
-  1. docs/notch-hover.png — the notch expanded on hover, showing the preset pills,
-     captured over something colourful. The frosted glass is invisible on a flat
-     background: it has nothing to blur.
+*Hovering the resting notch expands it: the active preset, a live Ollama
+connection indicator, and one tap to switch between cleanup, formal, bullet list,
+translation and prompt builder — without opening the dashboard.*
 
-  2. The demo video. Do NOT commit it — a .mov bloats the git history permanently.
-     Instead: edit this README on github.com, drag the file into the editor, and
-     GitHub hosts it and inserts the link itself. Record it with the model already
-     warm (dictate one throwaway phrase first) and make sure it ends with the text
-     landing in the target app.
--->
+<!-- The demo video is uploaded through the GitHub editor rather than committed:
+     a .mov in the repository would sit in the git history permanently. Edit this
+     file on github.com, drag the video into the editor, and paste the resulting
+     link below this comment. -->
 
 ---: | :---: |
 | _`docs/overlay-recording.png`_ | _`docs/dashboard-history.png`_ |
