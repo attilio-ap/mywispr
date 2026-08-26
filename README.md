@@ -36,15 +36,16 @@ resolved, not merely transcribed.*
 connection indicator, and one tap to switch between cleanup, formal, bullet list,
 translation and prompt builder — without opening the dashboard.*
 
-<!-- The demo video is uploaded through the GitHub editor rather than committed:
-     a .mov in the repository would sit in the git history permanently. Edit this
-     file on github.com, drag the video into the editor, and paste the resulting
-     link below this comment. -->
+### The full loop, in real time
+
+<!-- Hosted by GitHub rather than committed: a video file in the repository
+     would sit in the git history permanently, for everyone who clones it. -->
 
 https://github.com/user-attachments/assets/9dc041ae-19fa-4d45-ac98-94d6e4b4e8d5
 
----: | :---: |
-| _`docs/overlay-recording.png`_ | _`docs/dashboard-history.png`_ |
+*Hold the hotkey, speak, release. The notch shows the transcript as it arrives,
+the local model cleans it up, and the finished text lands in whatever app has
+focus — here, WhatsApp.*
 
 ---
 
