@@ -105,7 +105,7 @@ need to debug something. The log rotates at 1 MB.
 
 **Two dictation modes**
 - **Hold-to-talk** — hold the hotkey (default: Right Option), speak, release. Transcribed, cleaned, pasted.
-- **Lock-to-listen** — press the hotkey twice quickly for hands-free continuous dictation. Each pause is transcribed, cleaned, pasted, and the mic restarts automatically. Exit with the hotkey or any left click.
+- **Lock-to-listen** — press the hotkey twice quickly for hands-free dictation: no key held, no time limit, pauses do not end it. Everything you say is accumulated and pasted once, when you exit with the hotkey or any left click.
 - **Accidental-tap guard** — a press under 0.25s with nothing said is cancelled silently, with no paste and no AI call.
 
 **Dynamic Island-style overlay**
@@ -310,7 +310,7 @@ Privacy quando serve fare diagnosi. Il file ruota a 1 MB.
 
 **Due modalità di dettatura**
 - **Hold-to-talk** — tieni premuto l'hotkey (default: Opzione Destra), parla, rilascia.
-- **Lock-to-listen** — premi due volte rapidamente per la dettatura continua a mani libere. Ogni pausa viene trascritta, ripulita e incollata, e il microfono riparte da solo. Esci con l'hotkey o con un click sinistro.
+- **Lock-to-listen** — premi due volte rapidamente per la dettatura a mani libere: nessun tasto da tenere, nessun limite di tempo, e le pause non la interrompono. Tutto quello che dici viene accumulato e incollato una volta sola, quando esci con l'hotkey o con un click sinistro.
 - **Protezione dai click accidentali** — una pressione sotto i 0.25s senza parlato viene annullata senza incollare nulla né chiamare l'AI.
 
 **Overlay stile Dynamic Island**

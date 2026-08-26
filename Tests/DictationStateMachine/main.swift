@@ -35,7 +35,7 @@ expect("a 1.5s hold is a real utterance",
        [.stopForProcessing])
 expect("the transcript is pasted and we go idle",
        m.handle(.finalTranscript("ciao"), context: idle),
-       [.cancelKeyUpConfirm, .processTranscriptHoldToTalk("ciao")])
+       [.cancelKeyUpConfirm, .processTranscript("ciao")])
 
 // ---------------------------------------------------------------------------
 T.section("accidental tap")
@@ -103,10 +103,9 @@ expect("a stale confirmation cannot stop it",
        m.handle(.keyUpConfirmFired(keyUpAt: at(0.1)), context: recording), [])
 expect("silence is ignored: the recogniser restarts itself",
        m.handle(.silence, context: recording), [])
-expect("a chunk is pasted and listening resumes",
-       m.handle(.finalTranscript("primo pezzo"), context: recording),
-       [.processTranscriptLocked("primo pezzo")])
-T.equal("still locked after a chunk", "\(m.isLocked)", "true")
+// There is no locked variant: both exits clear the flag before stopping the
+// microphone, so a transcript never arrives while hands-free mode is still set.
+T.equal("still locked while listening", "\(m.isLocked)", "true")
 
 // ---------------------------------------------------------------------------
 T.section("lock-to-listen: leaving")

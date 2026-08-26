@@ -26,10 +26,6 @@ enum Theme {
     /// which need to read as recessed against the panel material.
     static let fieldMaterial: Material = .thinMaterial
 
-    /// Opaque fallback for the few places a material cannot be used
-    /// (`List` row backgrounds, which composite badly over vibrancy).
-    static let surface = Color(NSColor.controlBackgroundColor)
-
     /// Subtle inset tint for recessed regions (list columns, read-only boxes).
     ///
     /// Deliberately a translucent tint rather than `underPageBackgroundColor`,

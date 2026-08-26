@@ -13,8 +13,9 @@ import Foundation
 ///
 /// **A — hold-to-talk.** Press and hold to record, release to stop and process.
 ///
-/// **B — lock-to-listen.** Two quick presses keep the microphone open. The
-/// second press does *not* start a second session; the running one is kept.
+/// **B — lock-to-listen.** Two quick presses keep the microphone open so the
+/// user can speak hands-free for as long as they like. Everything said is
+/// accumulated and pasted once, on exit — pauses do not end the dictation.
 /// Exit by pressing the hotkey again or left-clicking anywhere.
 struct DictationStateMachine {
 
@@ -81,10 +82,8 @@ struct DictationStateMachine {
         case stopForProcessing
         /// Nothing was recognised: clear the transient state and collapse the overlay.
         case returnToIdle
-        /// A chunk arrived while locked: paste it, then resume listening.
-        case processTranscriptLocked(String)
-        /// A transcript arrived in hold-to-talk: paste it, then go idle.
-        case processTranscriptHoldToTalk(String)
+        /// A transcript is ready: paste it, then go idle.
+        case processTranscript(String)
     }
 
     // MARK: - State
@@ -116,8 +115,12 @@ struct DictationStateMachine {
             return [.cancelKeyUpConfirm, .returnToIdle]
 
         case .finalTranscript(let text):
-            if isLocked { return [.processTranscriptLocked(text)] }
-            return [.cancelKeyUpConfirm, .processTranscriptHoldToTalk(text)]
+            // Note there is no "locked" variant. Both ways out of hands-free mode
+            // clear `isLocked` before stopping the microphone, and nothing else
+            // delivers a transcript while it is set — task rotation restarts the
+            // recogniser rather than finalising it. So by the time a transcript
+            // arrives the session is always already unlocked.
+            return [.cancelKeyUpConfirm, .processTranscript(text)]
 
         case .leftMouseClick:
             // A click anywhere is the escape hatch out of hands-free mode.

@@ -38,11 +38,6 @@ enum AppLanguage: String, Codable, CaseIterable, Identifiable {
     /// Locale used for dates and numbers in the dashboard.
     var formattingLocale: Locale { recognitionLocale }
 
-    /// The language the `translation` preset targets — always the other one.
-    var translationTarget: AppLanguage {
-        self == .italian ? .english : .italian
-    }
-
     /// Default glossary for this language.
     ///
     /// These are phonetic fix-ups for terms the speech recogniser reliably gets
@@ -346,9 +341,6 @@ struct L10n {
     var analyticsTotalTranscriptions: String { t("Trascrizioni totali effettuate", "Total transcriptions") }
     var analyticsAverageLength: String { t("Lunghezza media trascrizione", "Average transcription length") }
     func analyticsWordsValue(_ v: Double) -> String { String(format: t("%.1f parole", "%.1f words"), v) }
-    func presetsCount(_ n: Int) -> String {
-        n == 1 ? t("1 preset", "1 preset") : t("\(n) preset", "\(n) presets")
-    }
     var analyticsPreferredModel: String { t("Modello LLM locale preferito", "Preferred local LLM model") }
 
     // MARK: - Ollama Monitor Tab

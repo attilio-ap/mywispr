@@ -361,35 +361,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             appState.isProcessing = false
             resetToIdle()
 
-        case .processTranscriptLocked(let text):
-            handleLockedTranscript(text)
-
-        case .processTranscriptHoldToTalk(let text):
-            handleHoldToTalkTranscript(text)
+        case .processTranscript(let text):
+            handleTranscript(text)
         }
     }
 
     // MARK: - Transcript Processing
 
-    /// Lock-to-listen: paste this chunk, then immediately resume listening.
-    private func handleLockedTranscript(_ rawText: String) {
-        Logger.log("Lock-to-listen: chunk ready, pasting and restarting the microphone.")
-        appState.overlayMode = .processing
-
-        processAndPaste(rawText) { [weak self] in
-            guard let self, self.machine.isLocked else { return }
-            self.appState.overlayMode = .recording
-            self.appState.partialTranscript = ""
-            // Small gap so the audio engine has fully torn down before restarting.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                guard let self, self.machine.isLocked else { return }
-                self.speechManager.startRecording()
-            }
-        }
-    }
-
-    /// Hold-to-talk: paste once, then return to idle.
-    private func handleHoldToTalkTranscript(_ rawText: String) {
+    /// Paste the finished transcript, then return to idle.
+    private func handleTranscript(_ rawText: String) {
         // The pending confirmation was already disarmed by .cancelKeyUpConfirm;
         // the timer is owned solely by perform(_:).
         appState.isRecording = false
