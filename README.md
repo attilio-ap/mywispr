@@ -41,6 +41,8 @@ translation and prompt builder — without opening the dashboard.*
      file on github.com, drag the video into the editor, and paste the resulting
      link below this comment. -->
 
+https://github.com/user-attachments/assets/9dc041ae-19fa-4d45-ac98-94d6e4b4e8d5
+
 ---: | :---: |
 | _`docs/overlay-recording.png`_ | _`docs/dashboard-history.png`_ |
 
